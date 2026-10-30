@@ -5,7 +5,7 @@ const lv=n=>`Trình độ HSK${n}: chỉ dùng từ vựng và ngữ pháp trong
 const P={
 scenario:b=>`Tạo tình huống luyện nói tiếng Trung. Mô tả của người học: "${b.desc}". ${lv(b.level)}
 Trả về JSON: {"emoji":"1 emoji","title":"tiêu đề tiếng Trung ngắn","titleVi":"nghĩa tiếng Việt","context":"bối cảnh tiếng Trung 2-3 câu","contextVi":"bản dịch tiếng Việt","partner":"tên và vai của nhân vật, ví dụ 小明 · 中国大学生","goals":["3 mục tiêu ngắn bằng tiếng Trung"],"dialogue":[{"role":"npc","zh":"","pinyin":"","vi":""}]}
-dialogue gồm 10 lượt xen kẽ, bắt đầu bằng "npc", role chỉ là "npc" hoặc "me" (me là người học), kết thúc bằng "npc".`,
+dialogue gồm 8 lượt xen kẽ, bắt đầu bằng "npc", role chỉ là "npc" hoặc "me" (me là người học), kết thúc bằng "npc".`,
 chat:b=>`Bạn đóng vai ${b.partner} trong tình huống: ${b.context}. Trò chuyện tự nhiên bằng tiếng Trung với người học. ${lv(b.level)} Mỗi lần chỉ nói 1-2 câu ngắn và hỏi tiếp để duy trì hội thoại. Người học nói sai thì vẫn đáp tự nhiên.
 Lịch sử (role "me" là người học): ${JSON.stringify(b.history)}
 ${b.history.length?'Hãy đáp lại lượt cuối của người học.':'Hãy mở đầu cuộc trò chuyện.'}
@@ -15,21 +15,25 @@ Trả về JSON: {"score":số 0-100,"good":"điểm tốt","fixes":[{"said":"c�
 const MODELS=[MODEL,...(process.env.GEMINI_FALLBACK||'gemini-flash-lite-latest').split(',').map(x=>x.trim()).filter(x=>x&&x!==MODEL)];
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function gem(prompt){
- let last='';
+ let last='',t0=Date.now(),think=true;
  for(const model of MODELS){
   for(let t=0;t<3;t++){
-   const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':KEY},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json',temperature:0.8}})});
+   if(Date.now()-t0>55000)throw new Error('Gemini phản hồi quá lâu, thử lại sau ít phút. '+last.slice(0,120));
+   const cfg={responseMimeType:'application/json',temperature:0.8};if(think)cfg.thinkingConfig={thinkingBudget:0};
+   let r;try{r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',signal:AbortSignal.timeout(25000),headers:{'Content-Type':'application/json','x-goog-api-key':KEY},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:cfg})})}
+   catch(e){last=`Model ${model} không phản hồi kịp (25 giây).`;break}
    if(r.ok){const j=await r.json();const x=(j.candidates?.[0]?.content?.parts||[]).filter(p=>!p.thought).map(p=>p.text||'').join('');
     try{return JSON.parse(x.replace(/```json|```/g,'').trim())}catch{last='AI trả về dữ liệu lỗi, thử lại.';continue}}
    let m='';try{m=(await r.json()).error?.message||''}catch{}
    last=`Gemini lỗi ${r.status} (model: ${model}): ${m}`.slice(0,300);
-   if(r.status===404)break;                              // model không tồn tại → thử model dự phòng
+   if(r.status===400&&think&&/think/i.test(m)){think=false;t--;continue}   // model không hỗ trợ tắt suy nghĩ
+   if(r.status===404)break;
    if(r.status===429){if(t<1){await sleep(2500);continue}throw Object.assign(new Error('Hết lượt miễn phí tạm thời, thử lại sau ít phút.'),{code:429})}
-   if(r.status>=500){await sleep(1200*(t+1));continue}   // quá tải → thử lại
+   if(r.status>=500){await sleep(1000*(t+1));continue}
    throw new Error(last);
   }
  }
- throw new Error(/50\d/.test(last)?'Gemini đang quá tải, thử lại sau ít phút. ('+last.slice(0,120)+')':last);
+ throw new Error(/50\d|kịp/.test(last)?'Gemini đang quá tải hoặc chậm, thử lại sau ít phút. ('+last.slice(0,120)+')':last);
 }
 http.createServer((req,res)=>{
  if(req.method==='POST'&&req.url==='/api/ai'){
