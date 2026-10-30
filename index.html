@@ -84,7 +84,7 @@ const SAMPLES=[
 const st={lv:0,mode:'learn',mine:LS.get('mine',[]),cache:LS.get('cache',{}),voice:LS.get('voice',{name:'',rate:1})};
 let pl=null,rec=null,busy=false,tt;
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(tt);tt=setTimeout(()=>t.style.display='none',3200)}
-async function ai(task,b){const r=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task,...b})});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Lỗi máy chủ');return j}
+async function ai(task,b){let r;try{r=await fetch('/api/ai',{method:'POST',signal:AbortSignal.timeout(75000),headers:{'Content-Type':'application/json'},body:JSON.stringify({task,...b})})}catch{throw new Error('Máy chủ không phản hồi. Nếu web vừa “ngủ”, chờ 1 phút rồi thử lại.')}const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Lỗi máy chủ');return j}
 /* ---------- home ---------- */
 function home(){
  $('#lvchips').innerHTML=[0,1,2,3,4,5,6].map(n=>`<button class="chip ${st.lv===n?'on':''}" onclick="st.lv=${n};home()">${n?'HSK'+n:'Tất cả'}</button>`).join('');
@@ -107,7 +107,7 @@ function openNew(){let lv=2;
   catch(e){toast(e.message);$('#ng').disabled=false;$('#ng').textContent='Tạo'}};}
 async function getSc(it){if(st.cache[it.id])return st.cache[it.id];const sc=await ai('scenario',{desc:it.t+' — '+it.d,level:it.lv});st.cache[it.id]=sc;LS.set('cache',st.cache);return sc}
 async function openSc(id){const it=[...st.mine,...SAMPLES].find(x=>x.id===id);if(!it)return;
- modal(`<h3>${esc(it.t)}</h3><p class="dots">AI đang chuẩn bị tình huống</p>`);
+ modal(`<h3>${esc(it.t)}</h3><p class="dots">AI đang chuẩn bị tình huống (có thể mất 10–30 giây)</p>`);
  try{const sc=await getSc(it);sc.lv=it.lv;
   modal(`<h3>${esc(sc.title)} <span class="badge">HSK${it.lv}</span></h3><div class="vic">${esc(sc.titleVi)}</div>
   <label>Chế độ luyện</label><div class="modes"><button class="mode ${st.mode==='learn'?'on':''}" data-m="learn"><b>🎓 Học tập</b>Nhập vai, đọc theo lời nhân vật</button><button class="mode ${st.mode==='chat'?'on':''}" data-m="chat"><b>💬 Hội thoại</b>Trò chuyện tự nhiên như thực tế</button></div>
