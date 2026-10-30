@@ -15,7 +15,7 @@ Trả về JSON: {"score":số 0-100,"good":"điểm tốt","fixes":[{"said":"c�
 async function gem(prompt){
  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':KEY},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json',temperature:0.8}})});
  if(r.status===429)throw Object.assign(new Error('Hết lượt miễn phí tạm thời, thử lại sau ít phút.'),{code:429});
- if(!r.ok)throw new Error('Gemini báo lỗi '+r.status+' (kiểm tra key và tên model).');
+ if(!r.ok){let m='';try{m=(await r.json()).error?.message||''}catch{}throw new Error(`Gemini lỗi ${r.status} (model: ${MODEL}): ${m}`.slice(0,400))}
  const j=await r.json();const t=(j.candidates?.[0]?.content?.parts||[]).filter(p=>!p.thought).map(p=>p.text||'').join('');
  return JSON.parse(t.replace(/```json|```/g,'').trim());
 }
@@ -30,5 +30,6 @@ http.createServer((req,res)=>{
    }catch(e){send(e.code||500,{error:e.message||'Lỗi máy chủ'})}});
   return;}
  if(req.url==='/api/health'){res.end('ok');return}
+ if(req.url==='/api/models'){(async()=>{try{const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=100',{headers:{'x-goog-api-key':KEY||''}});const j=await r.json();res.writeHead(200,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(r.ok?{current:MODEL,usable:(j.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')).map(m=>m.name.replace('models/',''))}:j,null,1))}catch(e){res.end(String(e))}})();return}
  res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});res.end(fs.readFileSync(path.join(__dirname,'index.html')));
 }).listen(PORT,()=>console.log('http://localhost:'+PORT));
