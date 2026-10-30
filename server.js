@@ -12,12 +12,24 @@ ${b.history.length?'Hãy đáp lại lượt cuối của người học.':'Hãy
 Trả về JSON: {"zh":"","pinyin":"","vi":"bản dịch tiếng Việt","suggestions":["3 câu người học có thể đáp, tiếng Trung, đúng trình độ"]}`,
 feedback:b=>`Nhận xét bằng tiếng Việt buổi hội thoại tiếng Trung sau của người học (${lv(b.level)}): ${JSON.stringify(b.history)}
 Trả về JSON: {"score":số 0-100,"good":"điểm tốt","fixes":[{"said":"câu người học","better":"câu sửa tiếng Trung","why":"giải thích ngắn tiếng Việt"}],"tip":"lời khuyên"}`};
+const MODELS=[MODEL,...(process.env.GEMINI_FALLBACK||'gemini-flash-lite-latest').split(',').map(x=>x.trim()).filter(x=>x&&x!==MODEL)];
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function gem(prompt){
- const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':KEY},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json',temperature:0.8}})});
- if(r.status===429)throw Object.assign(new Error('Hết lượt miễn phí tạm thời, thử lại sau ít phút.'),{code:429});
- if(!r.ok){let m='';try{m=(await r.json()).error?.message||''}catch{}throw new Error(`Gemini lỗi ${r.status} (model: ${MODEL}): ${m}`.slice(0,400))}
- const j=await r.json();const t=(j.candidates?.[0]?.content?.parts||[]).filter(p=>!p.thought).map(p=>p.text||'').join('');
- return JSON.parse(t.replace(/```json|```/g,'').trim());
+ let last='';
+ for(const model of MODELS){
+  for(let t=0;t<3;t++){
+   const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':KEY},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json',temperature:0.8}})});
+   if(r.ok){const j=await r.json();const x=(j.candidates?.[0]?.content?.parts||[]).filter(p=>!p.thought).map(p=>p.text||'').join('');
+    try{return JSON.parse(x.replace(/```json|```/g,'').trim())}catch{last='AI trả về dữ liệu lỗi, thử lại.';continue}}
+   let m='';try{m=(await r.json()).error?.message||''}catch{}
+   last=`Gemini lỗi ${r.status} (model: ${model}): ${m}`.slice(0,300);
+   if(r.status===404)break;                              // model không tồn tại → thử model dự phòng
+   if(r.status===429){if(t<1){await sleep(2500);continue}throw Object.assign(new Error('Hết lượt miễn phí tạm thời, thử lại sau ít phút.'),{code:429})}
+   if(r.status>=500){await sleep(1200*(t+1));continue}   // quá tải → thử lại
+   throw new Error(last);
+  }
+ }
+ throw new Error(/50\d/.test(last)?'Gemini đang quá tải, thử lại sau ít phút. ('+last.slice(0,120)+')':last);
 }
 http.createServer((req,res)=>{
  if(req.method==='POST'&&req.url==='/api/ai'){
