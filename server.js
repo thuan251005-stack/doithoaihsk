@@ -26,7 +26,7 @@ async function gem(prompt){
     try{return JSON.parse(x.replace(/```json|```/g,'').trim())}catch{last='AI trả về dữ liệu lỗi, thử lại.';continue}}
    let m='';try{m=(await r.json()).error?.message||''}catch{}
    last=`Gemini lỗi ${r.status} (model: ${model}): ${m}`.slice(0,300);
-   if(r.status===400&&think&&/think/i.test(m)){think=false;t--;continue}   // model không hỗ trợ tắt suy nghĩ
+   if(r.status===400&&think){think=false;t--;continue}   // model không nhận tùy chọn tắt suy nghĩ → thử lại không có
    if(r.status===404)break;
    if(r.status===429){if(t<1){await sleep(2500);continue}throw Object.assign(new Error('Hết lượt miễn phí tạm thời, thử lại sau ít phút.'),{code:429})}
    if(r.status>=500){await sleep(1000*(t+1));continue}
