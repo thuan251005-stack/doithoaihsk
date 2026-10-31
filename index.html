@@ -29,7 +29,7 @@ textarea{height:110px;resize:none}.cnt{text-align:right;color:var(--mu);font-siz
 .row2{display:flex;gap:10px;margin-top:16px}.row2>button{flex:1}
 .btn{border-radius:26px;padding:14px;font-weight:700;border:1px solid var(--ln);text-align:center}
 .btn.p{background:linear-gradient(90deg,var(--g),var(--g2));color:#fff;border:0}.btn:disabled{opacity:.45}
-.modes{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.seg,.modes{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .mode{border:2px solid var(--ln);border-radius:16px;padding:12px;text-align:left;font-size:14px;color:var(--mu)}
 .mode b{display:block;color:var(--tx);font-size:16px}.mode.on{border-color:var(--g);background:#eefaf4}
 .lvs{display:flex;flex-wrap:wrap;gap:8px}.lvs .chip.on{background:var(--g)}
@@ -44,6 +44,7 @@ textarea{height:110px;resize:none}.cnt{text-align:right;color:var(--mu);font-siz
 .b{border-radius:18px;padding:10px 14px}.npc .b{background:#f0e9fd}.me .b{background:#dff6ea}
 .zh{font-size:20px;font-weight:600;line-height:1.5}.py,.vi{display:none;margin-top:4px;font-size:14px;color:var(--mu)}.py{font-style:italic}
 .sp .py,.sv .vi{display:block}
+.hz .zh{display:none}.npc.hz:not(.sv):not(.sp) .b::before{content:'🔊 Nghe lời nhân vật…';color:var(--mu);font-size:15px}.hz .vi{font-size:18px;color:var(--tx);margin-top:0}
 .act{display:flex;gap:14px;margin:4px 6px;color:var(--mu);font-size:14px}
 .sc{font-weight:800;margin-top:6px}.cmp .ok{color:#0a9b66}.cmp .bad{color:#e0453a;text-decoration:underline}
 #foot{border-top:1px solid var(--ln);padding:10px 12px calc(10px + env(safe-area-inset-bottom))}
@@ -57,7 +58,7 @@ textarea{height:110px;resize:none}.cnt{text-align:right;color:var(--mu);font-siz
 .gm{background:#f1faf6;border-radius:12px;padding:10px;margin:6px 0}mark{background:#fff0a8;border-radius:4px;padding:0 2px;color:inherit}
 .dots::after{content:'…';animation:p 1s infinite}
 </style></head><body>
-<div class="top"><h1>🎙 Luyện nói HSK</h1><button onclick="openSet()" aria-label="Giọng đọc">🔊 Giọng</button></div>
+<div class="top"><h1>🎙 Luyện nói HSK <small style="font-size:11px;opacity:.75;font-weight:400">v6</small></h1><button onclick="openSet()" aria-label="Giọng đọc">🔊 Giọng</button></div>
 <div class="chips" id="lvchips"></div>
 <div class="sec"><h2>Tình huống của tôi</h2><button class="new" onclick="openNew()">＋ Tạo mới</button></div>
 <div id="mine"></div>
@@ -82,7 +83,7 @@ const SAMPLES=[
 {id:'s6',lv:3,emoji:'🏨',t:'酒店入住',d:'Nhận phòng khách sạn, hỏi giờ ăn sáng và wifi'},
 {id:'s7',lv:4,emoji:'🩺',t:'看医生',d:'Đi khám bệnh, mô tả triệu chứng với bác sĩ'},
 {id:'s8',lv:5,emoji:'💼',t:'工作面试',d:'Phỏng vấn xin việc, giới thiệu kinh nghiệm và điểm mạnh'}];
-const st={lv:0,mode:'learn',mine:LS.get('mine',[]),cache:LS.get('cache',{}),voice:LS.get('voice',{name:'',rate:1})};
+const st={lv:0,mode:'learn',swap:LS.get('swap',false),lang:LS.get('lang','vi'),mine:LS.get('mine',[]),cache:LS.get('cache',{}),voice:LS.get('voice',{name:'',rate:1})};
 let pl=null,rec=null,busy=false,tt;
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(tt);tt=setTimeout(()=>t.style.display='none',3200)}
 async function ai(task,b){let r;try{r=await fetch('/api/ai',{method:'POST',signal:AbortSignal.timeout(75000),headers:{'Content-Type':'application/json'},body:JSON.stringify({task,...b})})}catch{throw new Error('Máy chủ không phản hồi. Nếu web vừa “ngủ”, chờ 1 phút rồi thử lại.')}const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Lỗi máy chủ');return j}
@@ -117,10 +118,14 @@ async function openSc(id){const it=[...st.mine,...SAMPLES].find(x=>x.id===id);if
  try{const sc=await getSc(it);sc.lv=it.lv;
   modal(`<h3>${esc(sc.title)} <span class="badge">HSK${it.lv}</span></h3><div class="vic">${esc(sc.titleVi)}</div>
   <label>Chế độ luyện</label><div class="modes"><button class="mode ${st.mode==='learn'?'on':''}" data-m="learn"><b>🎓 Học tập</b>Nhập vai, đọc theo lời nhân vật</button><button class="mode ${st.mode==='chat'?'on':''}" data-m="chat"><b>💬 Hội thoại</b>Trò chuyện tự nhiên như thực tế</button></div>
+  <div id="lopts" ${st.mode==='learn'?'':'hidden'}><label>Bạn đóng vai</label><div class="seg" id="sw"><button class="mode ${!st.swap?'on':''}" data-v="0"><b>Nói sau</b>Đáp lại người kia</button><button class="mode ${st.swap?'on':''}" data-v="1"><b>Nói trước</b>Bạn mở lời</button></div>${(sc.grammar||[]).length?'<div class="vic" style="margin-top:6px">Bài luyện cấu trúc ngữ pháp được viết cho vai nói sau.</div>':''}
+  <label>Lời hiển thị bằng</label><div class="seg" id="lg"><button class="mode ${st.lang==='vi'?'on':''}" data-v="vi"><b>🇻🇳 Tiếng Việt</b>Tự nghĩ ra tiếng Trung</button><button class="mode ${st.lang==='zh'?'on':''}" data-v="zh"><b>中 Chữ Trung</b>Đọc theo (shadowing)</button></div></div>
   <label>Bối cảnh</label><div class="zhc">${esc(sc.context)}</div><div class="vic">${esc(sc.contextVi)}</div>
   <label>Người đối thoại</label><div class="zhc">${esc(sc.partner)}</div><label>Mục tiêu</label>${(sc.goals||[]).map(g=>`<div class="goal">• ${esc(g)}</div>`).join('')}${(sc.grammar||[]).length?`<label>Cấu trúc sẽ luyện</label>${sc.grammar.map(g=>`<div class="gm"><b>${esc(g.pattern)}</b> · ${esc(g.meaning)}<div class="zhc">${esc(g.example)}</div><div class="vic">${esc(g.exampleVi)}</div></div>`).join('')}`:''}
   <div class="row2"><button class="btn p" id="go">Bắt đầu</button></div>`);
-  $('#mbody').querySelector('.modes').onclick=e=>{const b=e.target.closest('.mode');if(!b)return;st.mode=b.dataset.m;document.querySelectorAll('.mode').forEach(x=>x.classList.toggle('on',x===b))};
+  $('#mbody').querySelector('.modes').onclick=e=>{const b=e.target.closest('.mode');if(!b)return;st.mode=b.dataset.m;e.currentTarget.querySelectorAll('.mode').forEach(x=>x.classList.toggle('on',x===b));$('#lopts').hidden=st.mode!=='learn'};
+  const seg=(id,fn)=>{const el=$('#'+id);el.onclick=e=>{const b=e.target.closest('.mode');if(!b)return;el.querySelectorAll('.mode').forEach(x=>x.classList.toggle('on',x===b));fn(b.dataset.v)}};
+  seg('sw',v=>{st.swap=v==='1';LS.set('swap',st.swap)});seg('lg',v=>{st.lang=v;LS.set('lang',v)});
   $('#go').onclick=()=>{closeModal();openPlay(sc,st.mode)};
  }catch(e){closeModal();toast(e.message)}}
 /* ---------- voice ---------- */
@@ -155,14 +160,14 @@ function score(target,said){const a=[...norm(target)],b=[...norm(said)],m=a.leng
 const focusOf=sc=>(sc.grammar||[]).map(g=>g.pattern).join('; ');
 function hl(m){const h=m.hl,i=h?m.zh.indexOf(h):-1;return i<0?esc(m.zh):esc(m.zh.slice(0,i))+'<mark>'+esc(h)+'</mark>'+esc(m.zh.slice(i+h.length))}
 const foot=h=>$('#foot').innerHTML=h;
-function bubble(m,last){const me=m.role==='me';
- return `<div class="row ${m.role} ${me&&pl.mode==='learn'?'sp sv':''}"><div class="b"><div class="zh">${hl(m)}</div><div class="py">${esc(m.pinyin||'')}</div><div class="vi">${esc(m.vi||'')}</div></div>
- ${m.role==='npc'||pl.mode==='learn'?`<div class="act"><button data-a="say">🔊 Nghe lại</button><button data-a="sv">译 Dịch</button><button data-a="sp">拼 Phiên âm</button></div>`:''}
+function bubble(m,last){const me=m.role==='me',lvi=pl.mode==='learn'&&pl.lang==='vi';
+ return `<div class="row ${m.role} ${lvi?(me?'sv hz':'hz'):''}"><div class="b"><div class="zh">${hl(m)}</div><div class="py">${esc(m.pinyin||'')}</div><div class="vi">${esc(m.vi||'')}</div></div>
+ ${m.role==='npc'||pl.mode==='learn'?`<div class="act"><button data-a="say">🔊 Nghe lại</button>${lvi?'<button data-a="hz">中 Chữ Hán</button>':''}${me&&lvi?'':'<button data-a="sv">译 Dịch</button>'}<button data-a="sp">拼 Phiên âm</button></div>`:''}
  ${last&&me&&pl.mode==='learn'?'<div id="res"></div>':''}</div>`}
 function render(list){const el=$('#msgs');el.innerHTML=list.map((m,i)=>bubble(m,i===list.length-1)).join('');el._l=list;el.scrollTop=el.scrollHeight}
 $('#msgs').addEventListener('click',e=>{const b=e.target.closest('[data-a]');if(!b)return;const row=b.closest('.row'),i=[...$('#msgs').children].indexOf(row),m=$('#msgs')._l[i];
  if(b.dataset.a==='say')say(m.zh);else row.classList.toggle(b.dataset.a)});
-function openPlay(sc,mode){pl={sc,mode,i:0,hist:[],sug:[],scores:[]};$('#rate').textContent=st.voice.rate+'x';$('#ptitle').textContent=sc.title;$('#psub').textContent=sc.partner;$('#play').classList.add('show');
+function openPlay(sc0,mode){let sc=sc0;if(mode==='learn'&&st.swap)sc={...sc0,dialogue:sc0.dialogue.map(m=>({...m,role:m.role==='me'?'npc':'me'}))};pl={sc,mode,lang:st.lang,i:0,hist:[],sug:[],scores:[]};$('#rate').textContent=st.voice.rate+'x';$('#ptitle').textContent=sc.title;$('#psub').textContent=sc.partner;$('#play').classList.add('show');
  if(mode==='learn')stepL();else{render([]);turn()}}
 function closePlay(){try{speechSynthesis.cancel()}catch{}if(rec)rec.stop();pl=null;$('#play').classList.remove('show')}
 function endPlay(){if(!pl)return;if(pl.mode==='chat'&&pl.hist.some(h=>h.role==='me'))return feedback();closePlay()}
