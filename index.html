@@ -56,6 +56,14 @@ textarea{height:110px;resize:none}.cnt{text-align:right;color:var(--mu);font-siz
 .done{text-align:center;font-weight:800;font-size:18px;margin-bottom:10px}
 #toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#17232c;color:#fff;padding:10px 16px;border-radius:14px;display:none;z-index:30;max-width:86%;text-align:center}
 .gm{background:#f1faf6;border-radius:12px;padding:10px;margin:6px 0}mark{background:#fff0a8;border-radius:4px;padding:0 2px;color:inherit}
+#ask{position:fixed;inset:0;background:#0006;display:none;align-items:flex-end;z-index:15}#ask.show{display:flex}
+.as-card{background:#fff;border-radius:22px 22px 0 0;width:100%;max-height:84dvh;height:84dvh;display:flex;flex-direction:column;padding:14px 14px calc(12px + env(safe-area-inset-bottom))}
+.as-head{display:flex;justify-content:space-between;align-items:center;font-size:17px;margin-bottom:6px}.as-head button{font-size:20px;padding:4px 10px}
+#as-ctx{margin-bottom:6px}.as-line{display:inline-flex;gap:8px;align-items:center;background:#fff0a8;border-radius:12px;padding:4px 10px;font-size:15px}.as-line button{font-size:13px}
+#as-msgs{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:4px 2px}
+.qb{align-self:flex-end;background:#dff6ea;border-radius:16px;padding:8px 12px;max-width:85%}.ab{align-self:flex-start;background:#f1f4f7;border-radius:16px;padding:10px 14px;max-width:92%;line-height:1.6}
+.as-hint{color:var(--mu);text-align:center;padding:14px 8px;font-size:15px}
+.as-in{margin-top:8px}.act button[data-a=ask]{color:#0a8f86}
 .dots::after{content:'…';animation:p 1s infinite}
 </style></head><body>
 <div class="top"><h1>🎙 Luyện nói HSK <small style="font-size:11px;opacity:.75;font-weight:400">v6</small></h1><button onclick="openSet()" aria-label="Giọng đọc">🔊 Giọng</button></div>
@@ -67,9 +75,10 @@ textarea{height:110px;resize:none}.cnt{text-align:right;color:var(--mu);font-siz
 <div id="modal"><div id="mbody"></div></div>
 <div id="play">
  <div class="ph"><button onclick="closePlay()" aria-label="Quay lại">‹</button><div class="t"><b id="ptitle"></b><small id="psub"></small></div>
-  <button class="ib" onclick="cycleRate()" id="rate">1x</button><button class="ib end" onclick="endPlay()">⚑ Kết thúc</button></div>
+  <button class="ib" onclick="openAsk()" aria-label="Hỏi AI về bài này" title="Hỏi AI về bài này">💡 Hỏi</button><button class="ib" onclick="cycleRate()" id="rate">1x</button><button class="ib end" onclick="endPlay()">⚑ Kết thúc</button></div>
  <div id="msgs"></div><div id="foot"></div>
 </div>
+<div id="ask"><div class="as-card"><div class="as-head"><b>💡 Hỏi AI về bài này</b><button onclick="closeAsk()" aria-label="Đóng">✕</button></div><div id="as-ctx"></div><div id="as-msgs"></div><div class="sug" id="as-sug"></div><div class="fr as-in"><input class="ti" id="as-q" placeholder="Hỏi về từ vựng, ngữ pháp, cấu trúc…" maxlength="500"><button class="pill g" onclick="sendAsk()">➤</button></div></div></div>
 <div id="toast"></div>
 <script>
 const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -156,20 +165,36 @@ function score(target,said){const a=[...norm(target)],b=[...norm(said)],m=a.leng
  for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)d[i][j]=a[i-1]===b[j-1]?d[i-1][j-1]+1:Math.max(d[i-1][j],d[i][j-1]);
  const ok=Array(m).fill(false);let i=m,j=n;while(i&&j){if(a[i-1]===b[j-1]){ok[i-1]=true;i--;j--}else if(d[i-1][j]>=d[i][j-1])i--;else j--}
  return{pct:m?Math.round(d[m][n]/Math.max(m,n)*100):0,html:a.map((c,k)=>`<span class="${ok[k]?'ok':'bad'}">${esc(c)}</span>`).join('')}}
+/* ---------- hỏi AI về bài ---------- */
+let askLog=[],askLine='',askBusy=false;
+const ASKQ=['Giải thích ngữ pháp bài này','Từ vựng quan trọng trong bài','Cho thêm ví dụ tương tự','Câu này dùng khi nào?'];
+const fmtA=t=>esc(t).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/\n/g,'<br>');
+function openAsk(line){if(!pl)return;askLine=typeof line==='string'?line:'';renderAsk();$('#ask').classList.add('show')}
+function closeAsk(){$('#ask').classList.remove('show')}
+$('#ask').addEventListener('click',e=>{if(e.target.id==='ask')closeAsk()});
+function renderAsk(){const c=$('#as-ctx');c.innerHTML=askLine?`<span class="as-line">Đang hỏi về: <b>${esc(askLine)}</b><button onclick="askLine='';renderAsk()" aria-label="Bỏ chọn câu">✕</button></span>`:'';
+ const m=$('#as-msgs');m.innerHTML=askLog.length?askLog.map(x=>`<div class="qb">${esc(x.q)}</div>${x.a===null?'<div class="ab dots">Đang trả lời</div>':`<div class="ab">${fmtA(x.a)}</div>`}`).join(''):'<div class="as-hint">Hỏi bất kỳ điều gì về bài này: từ vựng, ngữ pháp, cấu trúc câu. Hoặc bấm “❓ Hỏi” dưới một câu để hỏi riêng câu đó.</div>';
+ m.scrollTop=m.scrollHeight;$('#as-sug').innerHTML=ASKQ.map(q=>`<button data-q="${esc(q)}">${esc(q)}</button>`).join('');
+ $('#as-sug').onclick=e=>{const q=e.target.dataset.q;if(q)sendAsk(q)};$('#as-q').onkeydown=e=>{if(e.key==='Enter')sendAsk()}}
+async function sendAsk(t){const inp=$('#as-q'),q=(typeof t==='string'?t:inp.value).trim();if(!q||askBusy||!pl)return;inp.value='';askBusy=true;askLog.push({q,a:null});renderAsk();
+ const lines=(pl.mode==='learn'?pl.sc.dialogue:pl.hist).map(m=>m.zh);
+ try{const r=await ai('ask',{question:q,line:askLine,lines,context:pl.sc.context,level:pl.sc.lv,focus:focusOf(pl.sc),qa:askLog.slice(-7,-1).map(x=>({q:x.q,a:x.a||''}))});askLog[askLog.length-1].a=String(r.answer||'…')}
+ catch(e){askLog.pop();inp.value=q;toast(e.message)}
+ askBusy=false;renderAsk()}
 /* ---------- play ---------- */
 const focusOf=sc=>(sc.grammar||[]).map(g=>g.pattern).join('; ');
 function hl(m){const h=m.hl,i=h?m.zh.indexOf(h):-1;return i<0?esc(m.zh):esc(m.zh.slice(0,i))+'<mark>'+esc(h)+'</mark>'+esc(m.zh.slice(i+h.length))}
 const foot=h=>$('#foot').innerHTML=h;
 function bubble(m,last){const me=m.role==='me',lvi=pl.mode==='learn'&&pl.lang==='vi';
  return `<div class="row ${m.role} ${lvi?(me?'sv hz':'hz'):''}"><div class="b"><div class="zh">${hl(m)}</div><div class="py">${esc(m.pinyin||'')}</div><div class="vi">${esc(m.vi||'')}</div></div>
- ${m.role==='npc'||pl.mode==='learn'?`<div class="act"><button data-a="say">🔊 Nghe lại</button>${lvi?'<button data-a="hz">中 Chữ Hán</button>':''}${me&&lvi?'':'<button data-a="sv">译 Dịch</button>'}<button data-a="sp">拼 Phiên âm</button></div>`:''}
+ ${m.role==='npc'||pl.mode==='learn'?`<div class="act"><button data-a="say">🔊 Nghe lại</button>${lvi?'<button data-a="hz">中 Chữ Hán</button>':''}${me&&lvi?'':'<button data-a="sv">译 Dịch</button>'}<button data-a="sp">拼 Phiên âm</button><button data-a="ask">❓ Hỏi</button></div>`:''}
  ${last&&me&&pl.mode==='learn'?'<div id="res"></div>':''}</div>`}
 function render(list){const el=$('#msgs');el.innerHTML=list.map((m,i)=>bubble(m,i===list.length-1)).join('');el._l=list;el.scrollTop=el.scrollHeight}
 $('#msgs').addEventListener('click',e=>{const b=e.target.closest('[data-a]');if(!b)return;const row=b.closest('.row'),i=[...$('#msgs').children].indexOf(row),m=$('#msgs')._l[i];
- if(b.dataset.a==='say')say(m.zh);else row.classList.toggle(b.dataset.a)});
-function openPlay(sc0,mode){let sc=sc0;if(mode==='learn'&&st.swap)sc={...sc0,dialogue:sc0.dialogue.map(m=>({...m,role:m.role==='me'?'npc':'me'}))};pl={sc,mode,lang:st.lang,i:0,hist:[],sug:[],scores:[]};$('#rate').textContent=st.voice.rate+'x';$('#ptitle').textContent=sc.title;$('#psub').textContent=sc.partner;$('#play').classList.add('show');
+ if(b.dataset.a==='say')say(m.zh);else if(b.dataset.a==='ask')openAsk(m.zh);else row.classList.toggle(b.dataset.a)});
+function openPlay(sc0,mode){let sc=sc0;if(mode==='learn'&&st.swap)sc={...sc0,dialogue:sc0.dialogue.map(m=>({...m,role:m.role==='me'?'npc':'me'}))};askLog=[];askLine='';pl={sc,mode,lang:st.lang,i:0,hist:[],sug:[],scores:[]};$('#rate').textContent=st.voice.rate+'x';$('#ptitle').textContent=sc.title;$('#psub').textContent=sc.partner;$('#play').classList.add('show');
  if(mode==='learn')stepL();else{render([]);turn()}}
-function closePlay(){try{speechSynthesis.cancel()}catch{}if(rec)rec.stop();pl=null;$('#play').classList.remove('show')}
+function closePlay(){closeAsk();try{speechSynthesis.cancel()}catch{}if(rec)rec.stop();pl=null;$('#play').classList.remove('show')}
 function endPlay(){if(!pl)return;if(pl.mode==='chat'&&pl.hist.some(h=>h.role==='me'))return feedback();closePlay()}
 /* learning mode */
 const cur=()=>pl.sc.dialogue[pl.i];
