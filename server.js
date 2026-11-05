@@ -23,17 +23,20 @@ notes:b=>`Bối cảnh: ${b.context}. Nhân vật ${b.partner} vừa nói: "${b.
 `+(b.focus?`Người học đang luyện cấu trúc: ${b.focus}; các câu gợi ý cũng dùng cấu trúc đó. `:'')+`Lịch sử trước đó (role "me" là người học): ${JSON.stringify(b.history)}
 Trả về JSON: {"pinyin":"pinyin của câu nhân vật vừa nói","vi":"bản dịch tiếng Việt","suggestions":["3 câu người học có thể đáp, tiếng Trung, đúng trình độ"]}`,
 feedback:b=>`Nhận xét bằng tiếng Việt buổi hội thoại tiếng Trung sau của người học (${lv(b.level)}): ${JSON.stringify(b.history)}
-`+(b.focus?`Cấu trúc đang luyện: ${b.focus}. Thêm trường "grammar" nhận xét người học dùng cấu trúc này đúng/sai mấy lần. `:'')+`Trả về JSON: {"score":số 0-100,"good":"điểm tốt","fixes":[{"said":"câu người học","better":"câu sửa tiếng Trung","why":"giải thích ngắn tiếng Việt"}],"tip":"lời khuyên"}`};
+`+(b.focus?`Cấu trúc đang luyện: ${b.focus}. Thêm trường "grammar" nhận xét người học dùng cấu trúc này đúng/sai mấy lần. `:'')+`Trả về JSON: {"score":số 0-100,"good":"điểm tốt","fixes":[{"said":"câu người học","better":"câu sửa tiếng Trung","why":"giải thích ngắn tiếng Việt"}],"tip":"lời khuyên"}
+Yêu cầu: rất ngắn gọn. "good" và "tip" mỗi cái 1 câu; "fixes" tối đa 3 lỗi quan trọng nhất, "why" dưới 20 chữ; chỉ xét các lượt của người học (role "me"), bỏ qua lời nhân vật.`};
 const MODELS=[MODEL,...(process.env.GEMINI_FALLBACK||'gemini-flash-lite-latest').split(',').map(x=>x.trim()).filter(x=>x&&x!==MODEL)];
 const CHAT_MODEL=process.env.GEMINI_CHAT_MODEL||'gemini-flash-lite-latest';
+const FB=process.env.GEMINI_FEEDBACK_MODEL||CHAT_MODEL;
+const FBM=[FB,...MODELS.filter(m=>m!==FB)];
 const CHATM=[CHAT_MODEL,...MODELS.filter(m=>m!==CHAT_MODEL)];
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-async function gem(prompt,models=MODELS){
+async function gem(prompt,models=MODELS,maxTok=0){
  let last='',t0=Date.now(),think=true,quota=false;
  for(const model of models){
   for(let t=0;t<3;t++){
    if(Date.now()-t0>55000)throw new Error('Gemini phản hồi quá lâu, thử lại sau ít phút. '+last.slice(0,120));
-   const cfg={responseMimeType:'application/json',temperature:0.8};if(think)cfg.thinkingConfig={thinkingBudget:0};
+   const cfg={responseMimeType:'application/json',temperature:0.8};if(maxTok)cfg.maxOutputTokens=maxTok;if(think)cfg.thinkingConfig={thinkingBudget:0};
    let r;try{r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',signal:AbortSignal.timeout(25000),headers:{'Content-Type':'application/json','x-goog-api-key':KEY},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:cfg})})}
    catch(e){last=`Model ${model} không phản hồi kịp (25 giây).`;break}
    if(r.ok){const j=await r.json();const x=(j.candidates?.[0]?.content?.parts||[]).filter(p=>!p.thought).map(p=>p.text||'').join('');
@@ -81,7 +84,7 @@ http.createServer((req,res)=>{
     b.partner=String(b.partner||'').slice(0,100);b.zh=String(b.zh||'').slice(0,300);
     b.history=(Array.isArray(b.history)?b.history:[]).slice(-30).map(x=>({role:x&&x.role==='me'?'me':'npc',zh:String((x&&x.zh)||'').slice(0,300)}));
     if(req.url==='/api/stream'){if(b.task!=='chat')return send(400,{error:'Yêu cầu không hợp lệ'});return await gemStream(P.chat(b),res)}
-    const out=await gem(P[b.task](b),b.task==='notes'?CHATM:MODELS);
+    const out=await gem(P[b.task](b),b.task==='notes'?CHATM:b.task==='feedback'?FBM:MODELS,b.task==='feedback'?1000:0);
     if(b.task==='scenario'&&(!Array.isArray(out.dialogue)||out.dialogue.length<2||out.dialogue.some(d=>!d||!d.zh)))throw new Error('AI tạo bài chưa đúng định dạng, thử lại.');
     send(200,out);
    }catch(e){send(Number.isInteger(e.code)?e.code:500,{error:e.message||'Lỗi máy chủ'})}});
