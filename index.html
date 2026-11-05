@@ -227,7 +227,7 @@ function chatFoot(){foot(`<div class="sug">${(pl.sug||[]).map(s=>`<button data-s
 function micC(){micToggle(t=>sendT(t),t=>{const i=$('#ti');if(i)i.value=t})}
 function sendT(t){t=(t||'').trim();if(!t||busy)return;pl.hist.push({role:'me',zh:t});pl.sug=[];turn()}
 async function feedback(){modal('<h3>Nhận xét buổi hội thoại</h3><p class="dots">AI đang chấm</p>');
- try{const r=await ai('feedback',{level:pl.sc.lv,focus:focusOf(pl.sc),history:pl.hist.map(h=>({role:h.role,zh:h.zh}))});
+ try{const r=await ai('feedback',{level:pl.sc.lv,focus:focusOf(pl.sc),history:pl.hist.slice(-16).map(h=>({role:h.role,zh:h.zh}))});
   modal(`<h3>Điểm: ${esc(r.score)}/100</h3><p>👍 ${esc(r.good)}</p>${r.grammar?`<p>📐 ${esc(r.grammar)}</p>`:''}${(r.fixes||[]).map(f=>`<div style="margin:10px 0"><div class="vic">Bạn nói: ${esc(f.said)}</div><div class="zhc">✔ ${esc(f.better)}</div><div class="vic">${esc(f.why)}</div></div>`).join('')}<p>💡 ${esc(r.tip)}</p><div class="row2"><button class="btn p" onclick="closeModal();closePlay()">Xong</button></div>`)}
  catch(e){closeModal();toast(e.message);closePlay()}}
 home();
