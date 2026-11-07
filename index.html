@@ -256,7 +256,7 @@ async function picFind(){const q=$('#pc-t').value.trim();if(!q)return toast('Nh�
  catch(e){$('#pc-i').innerHTML='';toast(e.name==='TimeoutError'||e.name==='TypeError'?'Máy chủ không phản hồi, thử lại nhé':e.message)}
  btn.disabled=false}
 function picShow(){const im=pic.img;$('#pc-i').innerHTML=`<img class="pimg" src="${esc(im.url)}" alt="Không tải được ảnh, bấm “Ảnh khác”">
- <div class="vic" style="margin-top:4px">Ảnh: <a href="${esc(im.link)}" target="_blank" rel="noopener">${esc(im.credit)}</a></div>
+ <div class="vic" style="margin-top:4px">Ảnh: <a href="${esc(im.link)}" target="_blank" rel="noopener">${esc(im.credit)}</a></div>${im.warn?`<div class="vic" style="color:#e0453a">⚠ ${esc(im.warn)}</div>`:''}
  <div class="row2"><button class="btn" id="pc-n">🔄 Ảnh khác</button></div>
  <label>Bạn miêu tả (tiếng Trung)</label><textarea id="pc-x" style="height:90px" maxlength="600" placeholder="Gõ chữ Hán hoặc bấm 🎤 để nói…"></textarea>
  <div class="fr" style="margin-top:10px"><button id="pc-m" class="mic" style="width:54px;height:54px;font-size:22px">🎤</button><button class="btn p" id="pc-c" style="flex:1">Chấm bài</button></div>`;
