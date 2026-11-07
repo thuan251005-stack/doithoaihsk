@@ -85,7 +85,7 @@ async function gemStream(prompt,res){
    res.end();return}}
  if(quota)throw Object.assign(new Error('Hết lượt miễn phí tạm thời, thử lại sau ít phút.'),{code:429});
  throw new Error(last||'Gemini không phản hồi, thử lại.')}
-const UA='hsk-speaking/1.0 (language learning app)',PEXELS=process.env.PEXELS_API_KEY,PIXABAY=process.env.PIXABAY_API_KEY,IMG_HOSTS=['images.pexels.com','upload.wikimedia.org','pixabay.com','cdn.pixabay.com'],qCache=new Map();
+const UA='hsk-speaking/1.0 (language learning app)',PEXELS=process.env.PEXELS_API_KEY,PIXABAY=(process.env.PIXABAY_API_KEY||'').trim().replace(/^key=/i,'').replace(/^["']+|["']+$/g,''),IMG_HOSTS=['images.pexels.com','upload.wikimedia.org','pixabay.com','cdn.pixabay.com'],qCache=new Map();
 async function imgQuery(q){
  if(/^[\x20-\x7e]+$/.test(q))return q;
  if(qCache.has(q))return qCache.get(q);
@@ -93,22 +93,26 @@ async function imgQuery(q){
  return q}
 async function findImage(q,seen){
  const eq=await imgQuery(q);let list=[];
- if(PIXABAY){
+ let note='';
+ if(PIXABAY){try{
   const r=await fetch('https://pixabay.com/api/?key='+encodeURIComponent(PIXABAY)+'&image_type=photo&orientation=horizontal&safesearch=true&per_page=50&q='+encodeURIComponent(eq.slice(0,100)),{signal:AbortSignal.timeout(15000)});
-  if(!r.ok)throw new Error('Tìm ảnh lỗi (Pixabay '+r.status+').');
-  const j=await r.json();list=(j.hits||[]).filter(p=>p.webformatURL).map(p=>({id:'x'+p.id,url:p.webformatURL,credit:p.user+' / Pixabay',link:p.pageURL}));
- }else if(PEXELS){
+  const t=await r.text();
+  if(!r.ok){note='Pixabay '+r.status+': '+t.slice(0,160);console.log(note)}
+  else{const j=JSON.parse(t);list=(j.hits||[]).filter(p=>p.webformatURL).map(p=>({id:'x'+p.id,url:p.webformatURL,credit:p.user+' / Pixabay',link:p.pageURL}))}
+ }catch(e){note='Pixabay: '+e.message;console.log(note)}}
+ if(!list.length&&PEXELS){try{
   const r=await fetch('https://api.pexels.com/v1/search?per_page=30&orientation=landscape&query='+encodeURIComponent(eq),{headers:{Authorization:PEXELS},signal:AbortSignal.timeout(15000)});
   if(!r.ok)throw new Error('Tìm ảnh lỗi (Pexels '+r.status+').');
   const j=await r.json();list=(j.photos||[]).map(p=>({id:'p'+p.id,url:p.src.large,credit:p.photographer+' / Pexels',link:p.url}));
- }else{
+ }catch(e){note+=' Pexels: '+e.message}}
+ if(!list.length){
   const r=await fetch('https://commons.wikimedia.org/w/api.php?action=query&format=json&generator=search&gsrnamespace=6&gsrlimit=30&prop=imageinfo&iiprop=url%7Cmime&iiurlwidth=800&gsrsearch='+encodeURIComponent(eq+' filetype:bitmap'),{headers:{'User-Agent':UA},signal:AbortSignal.timeout(15000)});
   if(!r.ok)throw new Error('Tìm ảnh lỗi (Wikimedia '+r.status+').');
   const j=await r.json();
   list=Object.values(j.query?.pages||{}).map(p=>({p,i:p.imageinfo?.[0]})).filter(x=>x.i&&x.i.mime==='image/jpeg'&&x.i.thumburl).map(x=>({id:'w'+x.p.pageid,url:x.i.thumburl,credit:'Wikimedia Commons',link:x.i.descriptionurl}));
  }
  const fresh=list.filter(x=>!seen.includes(x.id)),pool=fresh.length?fresh:list;
- if(!pool.length)throw Object.assign(new Error('Không tìm thấy ảnh cho chủ đề này, thử từ khóa khác.'),{code:404});
+ if(!pool.length)throw Object.assign(new Error('Không tìm thấy ảnh cho chủ đề này, thử từ khóa khác.'+(note?' ['+note.trim()+']':'')),{code:404});
  return{...pool[Math.floor(Math.random()*pool.length)],q:eq}}
 async function fetchImg(u){
  let url;try{url=new URL(u)}catch{throw new Error('Địa chỉ ảnh không hợp lệ.')}
