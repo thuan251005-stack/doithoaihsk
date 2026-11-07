@@ -193,3 +193,73 @@ let askLog=[],askLine='',askBusy=false;
 const ASKQ=['Giải thích ngữ pháp bài này','Từ vựng quan trọng trong bài','Cho thêm ví dụ tương tự','Câu này dùng khi nào?'];
 const fmtA=t=>esc(t).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/\n/g,'<br>');
 function openAsk(line){if(!pl)return;askLine=typeof line==='string'?line:'';renderAsk();$('#ask').classList.add('show')}
+function closeAsk(){$('#ask').classList.remove('show')}
+$('#ask').addEventListener('click',e=>{if(e.target.id==='ask')closeAsk()});
+function renderAsk(){const c=$('#as-ctx');c.innerHTML=askLine?`<span class="as-line">Đang hỏi về: <b>${esc(askLine)}</b><button onclick="askLine='';renderAsk()" aria-label="Bỏ chọn câu">✕</button></span>`:'';
+ const m=$('#as-msgs');m.innerHTML=askLog.length?askLog.map(x=>`<div class="qb">${esc(x.q)}</div>${x.a===null?'<div class="ab dots">Đang trả lời</div>':`<div class="ab">${fmtA(x.a)}</div>`}`).join(''):'<div class="as-hint">Hỏi bất kỳ điều gì về bài này: từ vựng, ngữ pháp, cấu trúc câu. Hoặc bấm “❓ Hỏi” dưới một câu để hỏi riêng câu đó.</div>';
+ m.scrollTop=m.scrollHeight;$('#as-sug').innerHTML=ASKQ.map(q=>`<button data-q="${esc(q)}">${esc(q)}</button>`).join('');
+ $('#as-sug').onclick=e=>{const q=e.target.dataset.q;if(q)sendAsk(q)};$('#as-q').onkeydown=e=>{if(e.key==='Enter')sendAsk()}}
+async function sendAsk(t){const inp=$('#as-q'),q=(typeof t==='string'?t:inp.value).trim();if(!q||askBusy||!pl)return;inp.value='';askBusy=true;askLog.push({q,a:null});const log=askLog,ent=log[log.length-1];renderAsk();
+ const lines=(pl.mode==='learn'?pl.sc.dialogue:pl.hist).map(m=>m.zh);
+ try{const r=await ai('ask',{question:q,line:askLine,lines,context:pl.sc.context,level:pl.sc.lv,focus:focusOf(pl.sc),qa:askLog.slice(-7,-1).map(x=>({q:x.q,a:x.a||''}))});ent.a=String(r.answer||'…')}
+ catch(e){const k=log.indexOf(ent);if(k>=0)log.splice(k,1);if(log===askLog){inp.value=q;toast(e.message)}}
+ askBusy=false;renderAsk()}
+/* ---------- play ---------- */
+const focusOf=sc=>(sc.grammar||[]).map(g=>g.pattern).join('; ');
+function hl(m){const h=m.hl,i=h?m.zh.indexOf(h):-1;return i<0?esc(m.zh):esc(m.zh.slice(0,i))+'<mark>'+esc(h)+'</mark>'+esc(m.zh.slice(i+h.length))}
+const foot=h=>$('#foot').innerHTML=h;
+function bubble(m,last){const me=m.role==='me',lvi=pl.mode==='learn'&&pl.lang==='vi';
+ return `<div class="row ${m.role} ${lvi?(me?'sv hz':'hz'):''}"><div class="b"><div class="zh">${hl(m)}</div><div class="py">${esc(m.pinyin||'')}</div><div class="vi">${esc(m.vi||'')}</div></div>
+ ${m.role==='npc'||pl.mode==='learn'?`<div class="act"><button data-a="say">🔊 Nghe lại</button>${lvi?'<button data-a="hz">中 Chữ Hán</button>':''}${me&&lvi?'':'<button data-a="sv">译 Dịch</button>'}<button data-a="sp">拼 Phiên âm</button><button data-a="ask">❓ Hỏi</button></div>`:''}
+ ${last&&me&&pl.mode==='learn'?'<div id="res"></div>':''}</div>`}
+function render(list){const el=$('#msgs');el.innerHTML=list.map((m,i)=>bubble(m,i===list.length-1)).join('');el._l=list;el.scrollTop=el.scrollHeight}
+$('#msgs').addEventListener('click',e=>{const b=e.target.closest('[data-a]');if(!b)return;const row=b.closest('.row'),i=[...$('#msgs').children].indexOf(row),m=$('#msgs')._l[i];
+ if(b.dataset.a==='say')say(m.zh);else if(b.dataset.a==='ask')openAsk(m.zh);else row.classList.toggle(b.dataset.a)});
+function openPlay(sc0,mode){let sc=sc0;if(mode==='learn'&&st.swap)sc={...sc0,dialogue:sc0.dialogue.map(m=>({...m,role:m.role==='me'?'npc':'me'}))};sid++;askLog=[];askLine='';pl={sc,mode,lang:st.lang,i:0,hist:[],sug:[],scores:[]};$('#rate').textContent=st.voice.rate+'x';$('#ptitle').textContent=sc.title;$('#psub').textContent=sc.partner;$('#play').classList.add('show');
+ if(mode==='learn')stepL();else{render([]);turn()}}
+function closePlay(){sid++;busy=false;try{chatCtl&&chatCtl.abort()}catch{}closeAsk();try{speechSynthesis.cancel()}catch{}if(rec)rec.stop();pl=null;$('#play').classList.remove('show')}
+function endPlay(){if(!pl)return;if(pl.mode==='chat'&&pl.hist.some(h=>h.role==='me'))return feedback();closePlay()}
+/* learning mode */
+const cur=()=>pl.sc.dialogue[pl.i];
+function stepL(){const d=pl.sc.dialogue;try{speechSynthesis.cancel()}catch{}
+ if(pl.i>=d.length){render(d);const a=pl.scores.length?Math.round(pl.scores.reduce((x,y)=>x+y,0)/pl.scores.length):0;
+  return foot(`<div class="done">🎉 Hoàn thành! Điểm trung bình: ${a}%</div><div class="fr"><button class="pill g" onclick="closePlay()">Xong</button></div>`)}
+ const m=d[pl.i];render(d.slice(0,pl.i+1));
+ if(m.role==='npc'){say(m.zh,()=>{if(pl&&d[pl.i]===m)setTimeout(()=>{if(pl&&d[pl.i]===m){pl.i++;stepL()}},500)});foot(`<div class="fr"><button class="pill" onclick="say(cur().zh)">🔊</button><button class="pill g" onclick="pl.i++;stepL()">Tiếp ›</button></div>`)}
+ else{footMe()}}
+function footMe(next){foot(`<div class="fr"><button class="pill" onclick="say(cur().zh)">🔊 Nghe mẫu</button><button id="mic" class="mic" onclick="micL()">🎤</button>${next?'<button class="pill g" onclick="pl.i++;stepL()">Tiếp ›</button>':'<button class="pill" onclick="pl.i++;stepL()">Bỏ qua ›</button>'}</div>`)}
+function micL(){micToggle(t=>{if(!pl)return;const s=score(cur().zh,t);pl.scores.push(s.pct);$('#res').innerHTML=`<div class="sc">${s.pct}% ${s.pct>=80?'🌟 Rất tốt':s.pct>=60?'👍 Khá':'🔁 Thử lại nhé'}</div><div class="cmp zh">${s.html}</div>`;footMe(s.pct>=60);$('#msgs').scrollTop=1e6},t=>{const r=$('#res');if(r)r.innerHTML=`<div class="vic">${esc(t)}</div>`})}
+/* chat mode */
+async function streamChat(body,onText){
+ const ctl=chatCtl=new AbortController(),tm=setTimeout(()=>ctl.abort(),45000);
+ try{let r;try{r=await fetch('/api/stream',{method:'POST',signal:ctl.signal,headers:{'Content-Type':'application/json'},body:JSON.stringify({task:'chat',...body})})}catch{throw new Error('Máy chủ không phản hồi. Nếu web vừa “ngủ”, chờ 1 phút rồi thử lại.')}
+  if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||'Lỗi máy chủ')}
+  const rd=r.body.getReader(),dec=new TextDecoder();let all='';
+  try{for(;;){const x=await rd.read();if(x.done)break;all+=dec.decode(x.value,{stream:true});onText(all)}}
+  catch{throw new Error(ctl.signal.aborted?'Phản hồi quá lâu, thử lại nhé.':'Mất kết nối khi nhận câu trả lời, thử lại nhé.')}
+  return all}finally{clearTimeout(tm)}}
+async function turn(){busy=true;const my=sid,el=$('#msgs');render(pl.hist);
+ el.insertAdjacentHTML('beforeend','<div class="row npc" id="live"><div class="b"><div class="zh dots">…</div></div></div>');el.scrollTop=1e6;chatFoot();
+ const h0=pl.hist.map(h=>({role:h.role,zh:h.zh})),base={partner:pl.sc.partner,context:pl.sc.context,level:pl.sc.lv,focus:focusOf(pl.sc)};
+ try{speechSynthesis.cancel()}catch{}
+ let spoken=0,m=null;
+ const flush=(all,final)=>{const re=/[^。！？!?\n]*[。！？!?\n]/g,rest=all.slice(spoken);let x,used=0;while((x=re.exec(rest))){const s=x[0].trim();if(s)sayAdd(s);used=re.lastIndex}spoken+=used;if(final){const s=all.slice(spoken).trim();if(s)sayAdd(s);spoken=all.length}};
+ try{const all=await streamChat({...base,history:h0},t=>{if(my!==sid)return;const z=$('#live .zh');if(z){z.classList.remove('dots');z.textContent=t.trimStart()}flush(t,false);el.scrollTop=1e6});
+  if(my!==sid)return;flush(all,true);const zh=all.trim();if(!zh)throw new Error('AI không trả lời, thử lại nhé.');
+  m={role:'npc',zh,pinyin:'',vi:''};pl.hist.push(m)}
+ catch(e){if(my!==sid)return;toast(e.message);pl.sug=[]}
+ busy=false;render(pl.hist);chatFoot();
+ if(m)ai('notes',{...base,zh:m.zh,history:h0}).then(n=>{if(!pl||!pl.hist.includes(m))return;m.pinyin=n.pinyin||'';m.vi=n.vi||'';const last=pl.hist[pl.hist.length-1]===m;render(pl.hist);
+  if(last){pl.sug=n.suggestions||[];const s=$('#foot .sug');if(s)s.innerHTML=pl.sug.map(x=>`<button data-s="${esc(x)}">${esc(x)}</button>`).join('')}}).catch(()=>{})}
+function chatFoot(){foot(`<div class="sug">${(pl.sug||[]).map(s=>`<button data-s="${esc(s)}">${esc(s)}</button>`).join('')}</div>
+ <div class="fr"><input class="ti" id="ti" placeholder="Gõ tiếng Trung…" ${busy?'disabled':''}><button class="pill" onclick="sendT($('#ti').value)">➤</button><button id="mic" class="mic" onclick="micC()" ${busy?'disabled':''} style="width:56px;height:56px;font-size:24px;padding:0">🎤</button></div>`);
+ $('#ti').onkeydown=e=>{if(e.key==='Enter')sendT(e.target.value)};
+ $('#foot .sug').onclick=e=>{const s=e.target.dataset.s;if(s)sendT(s)}}
+function micC(){micToggle(t=>sendT(t),t=>{const i=$('#ti');if(i)i.value=t})}
+function sendT(t){t=(t||'').trim();if(!t||busy||!pl)return;pl.hist.push({role:'me',zh:t});pl.sug=[];turn()}
+async function feedback(){modal('<h3>Nhận xét buổi hội thoại</h3><p class="dots">AI đang chấm</p>');
+ try{const r=await ai('feedback',{level:pl.sc.lv,focus:focusOf(pl.sc),history:pl.hist.slice(-16).map(h=>({role:h.role,zh:h.zh}))});
+  modal(`<h3>Điểm: ${esc(r.score)}/100</h3><p>👍 ${esc(r.good)}</p>${r.grammar?`<p>📐 ${esc(r.grammar)}</p>`:''}${(r.fixes||[]).map(f=>`<div style="margin:10px 0"><div class="vic">Bạn nói: ${esc(f.said)}</div><div class="zhc">✔ ${esc(f.better)}</div><div class="vic">${esc(f.why)}</div></div>`).join('')}<p>💡 ${esc(r.tip)}</p><div class="row2"><button class="btn p" onclick="closeModal();closePlay()">Xong</button></div>`)}
+ catch(e){closeModal();toast(e.message);closePlay()}}
+home();
+</script></body></html>
