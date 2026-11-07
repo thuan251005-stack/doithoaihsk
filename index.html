@@ -68,9 +68,13 @@ textarea{height:110px;resize:none}.cnt{text-align:right;color:var(--mu);font-siz
 .cw{position:relative}.cw .card{padding-right:52px}.del{position:absolute;right:24px;top:50%;transform:translateY(-50%);font-size:18px;padding:6px;opacity:.55}
 .nbi{display:flex;gap:6px;align-items:center;padding:8px 0;border-bottom:1px solid var(--ln)}.nbi span{flex:1;min-width:0;word-break:break-word}.nbi button{flex:0 0 auto;color:#0a8f86;font-size:14px;padding:4px 6px}.nbi button[data-rm]{color:var(--mu);font-size:16px}
 #nbl{max-height:38dvh;overflow:auto}
+.tools{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:12px 14px 0}.tools button{background:#fff;border:1px solid var(--ln);border-radius:18px;padding:12px;text-align:left}.tools b{display:block;font-size:16px}.tools small{color:var(--mu);font-size:13px}
+.pimg{width:100%;max-height:300px;object-fit:cover;border-radius:16px;margin-top:10px;background:#eef1f6}
+.wcs{display:flex;flex-wrap:wrap;gap:8px}.wc{border:2px solid var(--ln);border-radius:14px;padding:8px 12px;text-align:left}.wc small{display:block;color:var(--mu);font-size:12px}.wc.on{border-color:var(--g);background:#eefaf4}.wrow{display:flex;align-items:center;gap:8px;margin:10px 0}.wrow .wc{flex:0 0 96px;text-align:center;padding:6px}.wrow .ti.on{border-color:var(--g);background:#eefaf4}.wrow .mic{flex:0 0 auto;width:44px;height:44px;font-size:18px;box-shadow:none}
 </style></head><body>
 <div class="top"><h1>🎙 Luyện nói HSK <small style="font-size:11px;opacity:.75;font-weight:400">v7</small></h1><button onclick="openSet()" aria-label="Giọng đọc">🔊 Giọng</button></div>
 <div class="chips" id="lvchips"></div>
+<div class="tools"><button onclick="openPic()"><b>🖼 Nhìn tranh nói</b><small>Nhập chủ đề → xem ảnh → miêu tả</small></button><button onclick="openWords()"><b>🔤 Đặt câu 5 từ</b><small>AI ra 5 từ → bạn đặt câu</small></button></div>
 <div class="sec"><h2>Tình huống của tôi</h2><button class="new" onclick="openNew()">＋ Tạo mới</button></div>
 <div id="mine"></div>
 <div class="sec"><h2>Sổ cấu trúc ngữ pháp</h2><button class="new" onclick="newNb()">＋ Tạo sổ</button></div>
@@ -100,7 +104,7 @@ function home(){
  $('#nbs').innerHTML=st.nb.length?st.nb.map(n=>`<button class="card" onclick="openNb('${n.id}')"><div class="em">📒</div><div><b>${esc(n.name||'Sổ chưa đặt tên')}</b><small>${n.items.length} cấu trúc</small></div></button>`).join(''):'<div class="empty">Chưa có sổ. Bấm “Tạo sổ” để ghi lại các cấu trúc từ giáo trình, NotebookLM…</div>';
 }
 function modal(h){$('#mbody').innerHTML=h;$('#modal').classList.add('show')}
-function closeModal(){$('#modal').classList.remove('show')}
+function closeModal(){try{if(rec)rec.stop()}catch{}$('#modal').classList.remove('show')}
 $('#modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal()});
 const GRAM=[['A比B+形容词','so sánh hơn 比'],['A有B+形容词','so sánh bằng 有'],['A跟B一样+形容词','so sánh bằng 一样'],['把字句','câu chữ 把'],['被字句','câu bị động 被'],['越来越+形容词','ngày càng'],['一边…一边…','vừa… vừa…'],['不但…而且…','không những… mà còn'],['虽然…但是…','tuy… nhưng'],['如果…就…','nếu… thì'],['是…的','cấu trúc 是…的'],['了 / 过 / 着','trợ từ động thái']];
 function openNew(pre){let lv=2;
@@ -180,8 +184,8 @@ function listen(onres,onend){const R=window.SpeechRecognition||window.webkitSpee
  r.onresult=e=>{let t='';for(const x of e.results)t+=x[0].transcript;fin=t;onres(t);bump(SILENCE_MS)};
  r.onerror=e=>toast(e.error==='not-allowed'?'Hãy cho phép dùng micro cho trang này':e.error==='no-speech'?'Chưa nghe thấy giọng, thử lại nhé':'Không nghe rõ, thử lại nhé');
  r.onend=()=>{clearTimeout(tm);rec=null;onend(fin)};try{r.start()}catch{return null}return r}
-function micToggle(cb,live){if(rec){rec.stop();return}try{speechSynthesis.cancel()}catch{}
- const m=$('#mic');m?.classList.add('rec');rec=listen(live,t=>{m?.classList.remove('rec');if(t)cb(t)});if(!rec)m?.classList.remove('rec')}
+function micToggle(cb,live,sel='#mic'){if(rec){rec.stop();return}try{speechSynthesis.cancel()}catch{}
+ const m=$(sel);m?.classList.add('rec');rec=listen(live,t=>{m?.classList.remove('rec');if(t)cb(t)});if(!rec)m?.classList.remove('rec')}
 /* ---------- scoring ---------- */
 const norm=s=>s.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g,'');
 function score(target,said){const a=[...norm(target)],b=[...norm(said)],m=a.length,n=b.length;const d=Array.from({length:m+1},()=>Array(n+1).fill(0));
@@ -261,5 +265,65 @@ async function feedback(){modal('<h3>Nhận xét buổi hội thoại</h3><p cla
  try{const r=await ai('feedback',{level:pl.sc.lv,focus:focusOf(pl.sc),history:pl.hist.slice(-16).map(h=>({role:h.role,zh:h.zh}))});
   modal(`<h3>Điểm: ${esc(r.score)}/100</h3><p>👍 ${esc(r.good)}</p>${r.grammar?`<p>📐 ${esc(r.grammar)}</p>`:''}${(r.fixes||[]).map(f=>`<div style="margin:10px 0"><div class="vic">Bạn nói: ${esc(f.said)}</div><div class="zhc">✔ ${esc(f.better)}</div><div class="vic">${esc(f.why)}</div></div>`).join('')}<p>💡 ${esc(r.tip)}</p><div class="row2"><button class="btn p" onclick="closeModal();closePlay()">Xong</button></div>`)}
  catch(e){closeModal();toast(e.message);closePlay()}}
+/* ---------- nhìn tranh nói + đặt câu 5 từ ---------- */
+let xlv=LS.get('xlv',2);
+function lvChips(id){const el=$('#'+id),paint=()=>el.innerHTML=[1,2,3,4,5,6,7,8,9].map(n=>`<button class="chip ${xlv===n?'on':''}" data-l="${n}">${n}</button>`).join('');paint();el.onclick=e=>{const n=+e.target.dataset.l;if(n){xlv=n;LS.set('xlv',n);paint()}}}
+const fixesHtml=r=>(r.fixes||[]).map(f=>`<div style="margin:10px 0"><div class="vic">Bạn nói: ${esc(f.said)}</div><div class="zhc">✔ ${esc(f.better)}</div><div class="vic">${esc(f.why)}</div></div>`).join('');
+const modelHtml=m=>m&&m.zh?`<label>Bài mẫu</label><div class="gm"><div class="zhc">${esc(m.zh)}</div><div class="vic">${esc(m.pinyin)}</div><div class="vic">${esc(m.vi)}</div><button class="pill" style="margin-top:6px" data-t="${esc(m.zh)}" onclick="say(this.dataset.t)">🔊 Nghe mẫu</button></div>`:'';
+function attachMic(btn,ta,after){btn.onclick=()=>{const base=ta.value?ta.value.trim()+' ':'',f=t=>{ta.value=base+t;after&&after()};micToggle(f,f,'#'+btn.id)}}
+/* nhìn tranh nói */
+let pic={topic:'',img:null,seen:[]};
+function openPic(){
+ modal(`<h3>🖼 Nhìn tranh nói</h3><div class="vic">Nhập chủ đề, hệ thống tìm một bức ảnh. Bạn miêu tả ảnh bằng tiếng Trung (nói hoặc gõ).</div>
+ <label>Chủ đề</label><div class="fr"><input class="ti" id="pc-t" maxlength="60" placeholder="VD: chợ, sân bay, gia đình, trời mưa" value="${esc(pic.topic)}"><button class="pill g" id="pc-s">🔍 Tìm</button></div>
+ <label>Trình độ HSK</label><div class="lvs" id="pc-l"></div><div id="pc-i"></div><div id="pc-r"></div>
+ <div class="row2"><button class="btn" onclick="closeModal()">Đóng</button></div>`);
+ lvChips('pc-l');$('#pc-s').onclick=picFind;$('#pc-t').onkeydown=e=>{if(e.key==='Enter')picFind()};if(pic.img&&pic.topic)picShow()}
+async function picFind(){const q=$('#pc-t').value.trim();if(!q)return toast('Nhập chủ đề trước nhé');
+ if(q!==pic.topic)pic.seen=[];pic.topic=q;const btn=$('#pc-s');btn.disabled=true;$('#pc-r').innerHTML='';$('#pc-i').innerHTML='<p class="dots">Đang tìm ảnh</p>';
+ try{const r=await fetch('/api/image?q='+encodeURIComponent(q)+'&seen='+encodeURIComponent(pic.seen.join(',')),{signal:AbortSignal.timeout(60000)});
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Lỗi tìm ảnh');
+  pic.img=j;pic.seen.push(j.id);if(pic.seen.length>30)pic.seen.shift();picShow()}
+ catch(e){$('#pc-i').innerHTML='';toast(e.name==='TimeoutError'||e.name==='TypeError'?'Máy chủ không phản hồi, thử lại nhé':e.message)}
+ btn.disabled=false}
+function picShow(){const im=pic.img;$('#pc-i').innerHTML=`<img class="pimg" src="${esc(im.url)}" alt="Không tải được ảnh, bấm “Ảnh khác”">
+ <div class="vic" style="margin-top:4px">Ảnh: <a href="${esc(im.link)}" target="_blank" rel="noopener">${esc(im.credit)}</a></div>${im.warn?`<div class="vic" style="color:#e0453a">⚠ ${esc(im.warn)}</div>`:''}
+ <div class="row2"><button class="btn" id="pc-n">🔄 Ảnh khác</button></div>
+ <label>Bạn miêu tả (tiếng Trung)</label><textarea id="pc-x" style="height:90px" maxlength="600" placeholder="Gõ chữ Hán hoặc bấm 🎤 để nói…"></textarea>
+ <div class="fr" style="margin-top:10px"><button id="pc-m" class="mic" style="width:54px;height:54px;font-size:22px">🎤</button><button class="btn p" id="pc-c" style="flex:1">Chấm bài</button></div>`;
+ $('#pc-r').innerHTML='';$('#pc-n').onclick=picFind;attachMic($('#pc-m'),$('#pc-x'));$('#pc-c').onclick=picCheck}
+async function picCheck(){const t=$('#pc-x').value.trim();if(!t)return toast('Hãy miêu tả bức tranh trước');
+ if(rec)rec.stop();const b=$('#pc-c');b.disabled=true;b.textContent='Đang chấm…';$('#pc-r').innerHTML='<p class="dots">AI đang xem ảnh và chấm</p>';
+ try{const r=await ai('picfb',{img:pic.img.url,topic:pic.topic,text:t,level:xlv});
+  $('#pc-r').innerHTML=`<div class="gm"><b>Điểm: ${esc(r.score)}/100</b><div>👍 ${esc(r.good)}</div></div>${fixesHtml(r)}${(r.missed||[]).length?`<label>Chi tiết bạn chưa nói</label>${r.missed.map(x=>`<div class="goal">• ${esc(x)}</div>`).join('')}`:''}${modelHtml(r.model)}${(r.words||[]).length?`<label>Từ vựng hữu ích</label>${r.words.map(w=>`<div class="goal"><b class="zhc">${esc(w.zh)}</b> ${esc(w.pinyin)} · ${esc(w.vi)}</div>`).join('')}`:''}`;
+  $('#pc-r').scrollIntoView({behavior:'smooth',block:'nearest'})}
+ catch(e){$('#pc-r').innerHTML='';toast(e.message)}
+ b.disabled=false;b.textContent='Chấm bài'}
+/* đặt câu với 5 từ */
+let wd={words:[],prev:[]};
+function openWords(){
+ modal(`<h3>🔤 Đặt câu với 5 từ</h3><div class="vic">AI đưa 5 từ; bạn đặt mỗi từ một câu tiếng Trung (nói hoặc gõ).</div>
+ <label>Trình độ HSK</label><div class="lvs" id="wd-l"></div>
+ <label>Chủ đề (không bắt buộc)</label><input class="ti" id="wd-t" maxlength="60" placeholder="Để trống = ngẫu nhiên">
+ <div class="row2"><button class="btn p" id="wd-g">🎲 Lấy 5 từ</button></div><div id="wd-b"></div><div id="wd-r"></div>
+ <div class="row2"><button class="btn" onclick="closeModal()">Đóng</button></div>`);
+ lvChips('wd-l');$('#wd-g').onclick=wdGet;if(wd.words.length)wdShow()}
+async function wdGet(){const g=$('#wd-g');g.disabled=true;g.textContent='Đang chọn từ…';$('#wd-r').innerHTML='';
+ try{const r=await ai('words',{level:xlv,desc:$('#wd-t').value.trim(),prev:wd.prev});wd.words=r.words.slice(0,5);wd.prev=[...wd.prev,...wd.words.map(w=>w.zh)].slice(-30);wdShow()}
+ catch(e){toast(e.message);g.textContent=wd.words.length?'🎲 Bộ từ khác':'🎲 Lấy 5 từ'}
+ g.disabled=false}
+function wdShow(){$('#wd-g').textContent='🎲 Bộ từ khác';
+ $('#wd-b').innerHTML=`<label>Mỗi từ một câu (tiếng Trung)</label>${wd.words.map((w,k)=>`<div class="wrow"><button class="wc" data-w="${esc(w.zh)}"><b class="zhc">${esc(w.zh)}</b><small>${esc(w.pinyin)} · ${esc(w.vi)}</small></button><input class="ti" id="wd-x${k}" maxlength="200" placeholder="Câu với ${esc(w.zh)}…"><button class="mic" id="wd-m${k}">🎤</button></div>`).join('')}
+ <div class="row2"><button class="btn p" id="wd-c">Chấm 5 câu</button></div>`;
+ wd.words.forEach((w,k)=>{const ta=$('#wd-x'+k),mark=()=>ta.classList.toggle('on',ta.value.includes(w.zh));ta.oninput=mark;attachMic($('#wd-m'+k),ta,mark)});
+ $('#wd-b').onclick=e=>{const c=e.target.closest('.wc');if(c)say(c.dataset.w)};
+ $('#wd-c').onclick=wdCheck;$('#wd-r').innerHTML=''}
+async function wdCheck(){const ss=wd.words.map((w,k)=>$('#wd-x'+k).value.trim());if(!ss.some(Boolean))return toast('Hãy đặt ít nhất một câu');
+ if(rec)rec.stop();const b=$('#wd-c');b.disabled=true;b.textContent='Đang chấm…';$('#wd-r').innerHTML='<p class="dots">AI đang chấm</p>';
+ try{const r=await ai('wordscheck',{level:xlv,words:wd.words.map(w=>w.zh),sentences:ss});
+  $('#wd-r').innerHTML=`<div class="gm"><b>Điểm: ${esc(r.score)}/100</b></div>${(r.items||[]).map((it,k)=>`<div class="gm">${it.ok?'✅':'❌'} <b class="zhc">${esc(it.word)}</b>${ss[k]?`<div class="vic">Bạn viết: ${esc(ss[k])}</div>`:'<div class="vic">Chưa đặt câu</div>'}<div class="zhc">${esc(it.better)}</div><div class="vic">${esc(it.pinyin)}</div><div class="vic">${esc(it.vi)}</div>${it.why?`<div class="vic">💬 ${esc(it.why)}</div>`:''}<button class="pill" style="margin-top:6px" data-t="${esc(it.better)}" onclick="say(this.dataset.t)">🔊</button></div>`).join('')}${r.tip?`<p>💡 ${esc(r.tip)}</p>`:''}`;
+  $('#wd-r').scrollIntoView({behavior:'smooth',block:'nearest'})}
+ catch(e){$('#wd-r').innerHTML='';toast(e.message)}
+ b.disabled=false;b.textContent='Chấm 5 câu'}
 home();
 </script></body></html>
