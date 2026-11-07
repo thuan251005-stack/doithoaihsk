@@ -1,6 +1,8 @@
 // Máy chủ nhỏ: giữ API key bí mật, gọi Gemini, phục vụ index.html. Không cần cài thư viện.
 const http=require('http'),fs=require('fs'),path=require('path');
-const KEY=process.env.GEMINI_API_KEY,MODEL=process.env.GEMINI_MODEL||'gemini-flash-latest',PORT=process.env.PORT||3000;
+// Đọc khóa từ biến môi trường, hoặc từ Secret File của Render (/etc/secrets/TÊN hoặc ./TÊN)
+const sec=n=>{let v=process.env[n]||'';if(!v)for(const p of ['/etc/secrets/'+n,path.join(__dirname,n)]){try{v=fs.readFileSync(p,'utf8');if(v)break}catch{}}return v.trim().replace(/^["']+|["']+$/g,'')};
+let ki=0;const KEYS=[...new Set([sec('GEMINI_API_KEYS'),sec('GEMINI_API_KEY')].join(',').split(/[\s,;]+/).filter(Boolean))],KEY=KEYS[0]||'',MODEL=process.env.GEMINI_MODEL||'gemini-flash-latest',PORT=process.env.PORT||3000;
 const lv=n=>`Trình độ HSK 3.0 bậc ${n} (hệ 9 bậc theo Tiêu chuẩn trình độ tiếng Trung giáo dục quốc tế 2021; bậc 1-3 sơ cấp, 4-6 trung cấp, 7-9 cao cấp): chỉ dùng từ vựng và ngữ pháp trong phạm vi bậc ${n} (bậc 1-2: câu rất ngắn 4-10 chữ; bậc 3-4: độ dài vừa; bậc 5+: tự nhiên, phong phú). Chữ giản thể.`;
 const P={
 scenario:b=>`Tạo tình huống luyện nói tiếng Trung. Mô tả của người học: "${b.desc}". `+(b.grammar?`Cấu trúc ngữ pháp BẮT BUỘC luyện: "${b.grammar}". `:'')+lv(b.level)+`
@@ -43,17 +45,18 @@ const FBM=[FB,...MODELS.filter(m=>m!==FB)];
 const CHATM=[CHAT_MODEL,...MODELS.filter(m=>m!==CHAT_MODEL)];
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function gem(prompt,models=MODELS,maxTok=0,extra=[]){
- let last='',t0=Date.now(),think=true,quota=false;
- for(const model of models){
+ let last='',t0=Date.now(),think=true,quota=false;ki=(ki+1)%Math.max(KEYS.length,1);
+ for(const model of models){let rot=0;
   for(let t=0;t<3;t++){
    if(Date.now()-t0>55000)throw new Error('Gemini phản hồi quá lâu, thử lại sau ít phút. '+last.slice(0,120));
    const cfg={responseMimeType:'application/json',temperature:0.8};if(maxTok)cfg.maxOutputTokens=maxTok;if(think)cfg.thinkingConfig={thinkingBudget:0};
-   let r;try{r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',signal:AbortSignal.timeout(25000),headers:{'Content-Type':'application/json','x-goog-api-key':KEY},body:JSON.stringify({contents:[{parts:[...extra,{text:prompt}]}],generationConfig:cfg})})}
+   let r;try{r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',signal:AbortSignal.timeout(25000),headers:{'Content-Type':'application/json','x-goog-api-key':KEYS[ki]},body:JSON.stringify({contents:[{parts:[...extra,{text:prompt}]}],generationConfig:cfg})})}
    catch(e){last=`Model ${model} không phản hồi kịp (25 giây).`;break}
    if(r.ok){const j=await r.json();const x=(j.candidates?.[0]?.content?.parts||[]).filter(p=>!p.thought).map(p=>p.text||'').join('');
     try{return JSON.parse(x.replace(/```json|```/g,'').trim())}catch{last='AI trả về dữ liệu lỗi, thử lại.';continue}}
    let m='';try{m=(await r.json()).error?.message||''}catch{}
    last=`Gemini lỗi ${r.status} (model: ${model}): ${m}`.slice(0,300);
+   if(KEYS.length>1&&(r.status===429||r.status===403||(r.status===400&&/API key/i.test(m)))&&rot<KEYS.length-1){rot++;ki=(ki+1)%KEYS.length;t--;continue}
    if(r.status===400&&think){think=false;t--;continue}   // model không nhận tùy chọn tắt suy nghĩ → thử lại không có
    if(r.status===404)break;
    if(r.status===429){if(t<1){await sleep(2500);continue}quota=true;break}
@@ -65,14 +68,15 @@ async function gem(prompt,models=MODELS,maxTok=0,extra=[]){
  throw new Error(/50\d|kịp/.test(last)?'Gemini đang quá tải hoặc chậm, thử lại sau ít phút. ('+last.slice(0,120)+')':last);
 }
 async function gemStream(prompt,res){
- let last='',quota=false;
- for(const model of CHATM){let think=true;
+ let last='',quota=false;ki=(ki+1)%Math.max(KEYS.length,1);
+ for(const model of CHATM){let think=true,rot=0;
   for(let t=0;t<2;t++){
    const cfg={temperature:0.8,maxOutputTokens:300};if(think)cfg.thinkingConfig={thinkingBudget:0};
-   let r;try{r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`,{method:'POST',signal:AbortSignal.timeout(30000),headers:{'Content-Type':'application/json','x-goog-api-key':KEY},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:cfg})})}
+   let r;try{r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`,{method:'POST',signal:AbortSignal.timeout(30000),headers:{'Content-Type':'application/json','x-goog-api-key':KEYS[ki]},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:cfg})})}
    catch{last=`Model ${model} không phản hồi kịp.`;break}
    if(!r.ok){let m='';try{m=(await r.json()).error?.message||''}catch{}
     last=`Gemini lỗi ${r.status} (model: ${model}): ${m}`.slice(0,300);
+    if(KEYS.length>1&&(r.status===429||r.status===403||(r.status===400&&/API key/i.test(m)))&&rot<KEYS.length-1){rot++;ki=(ki+1)%KEYS.length;t--;continue}
     if(r.status===400&&think){think=false;t--;continue}
     if(r.status===429){quota=true;break}
     if(r.status===404||r.status>=500)break;
@@ -85,7 +89,7 @@ async function gemStream(prompt,res){
    res.end();return}}
  if(quota)throw Object.assign(new Error('Hết lượt miễn phí tạm thời, thử lại sau ít phút.'),{code:429});
  throw new Error(last||'Gemini không phản hồi, thử lại.')}
-const UA='hsk-speaking/1.0 (language learning app)',PEXELS=process.env.PEXELS_API_KEY,PIXABAY=(process.env.PIXABAY_API_KEY||'').trim().replace(/^key=/i,'').replace(/^["']+|["']+$/g,''),IMG_HOSTS=['images.pexels.com','upload.wikimedia.org','pixabay.com','cdn.pixabay.com'],qCache=new Map();
+const UA='hsk-speaking/1.0 (language learning app)',PEXELS=sec('PEXELS_API_KEY'),PIXABAY=sec('PIXABAY_API_KEY').replace(/^key=/i,''),IMG_HOSTS=['images.pexels.com','upload.wikimedia.org','pixabay.com','cdn.pixabay.com'],qCache=new Map();
 async function imgQuery(q){
  if(/^[\x20-\x7e]+$/.test(q))return q;
  if(qCache.has(q))return qCache.get(q);
@@ -150,6 +154,6 @@ http.createServer((req,res)=>{
    out(200,await findImage(q,seen))}
   catch(e){out([400,404,429].includes(e.code)?e.code:500,{error:e.message||'Lỗi tìm ảnh'})}})();return}
  if(req.url==='/api/health'){res.end('ok');return}
- if(req.url==='/api/models'){(async()=>{try{const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=100',{headers:{'x-goog-api-key':KEY||''}});const j=await r.json();res.writeHead(200,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(r.ok?{current:MODEL,usable:(j.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')).map(m=>m.name.replace('models/',''))}:j,null,1))}catch(e){res.end(String(e))}})();return}
+ if(req.url==='/api/models'){(async()=>{try{const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=100',{headers:{'x-goog-api-key':KEYS[ki]||''}});const j=await r.json();res.writeHead(200,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(r.ok?{current:MODEL,usable:(j.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')).map(m=>m.name.replace('models/',''))}:j,null,1))}catch(e){res.end(String(e))}})();return}
  res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});res.end(fs.readFileSync(path.join(__dirname,'index.html')));
 }).listen(PORT,()=>console.log('http://localhost:'+PORT));
