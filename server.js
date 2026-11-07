@@ -51,7 +51,16 @@ Phần 2 (trả lời câu hỏi): ${JSON.stringify(b.ans)}
 Phần 3 (nói theo đề): ${JSON.stringify(b.talk)}
 Nhận xét bằng tiếng Việt. Câu để trống thì 0 điểm, không liệt kê lỗi. ${ERR}
 Trả về JSON: {"p2":{"score":số 0-100,"items":[{"score":số 0-100,"errors":[${ERRJ}],"model":"câu trả lời mẫu tiếng Trung đúng trình độ","vi":"dịch câu mẫu"}]},"p3":{"score":số 0-100,"errors":[${ERRJ}],"model":{"zh":"bài nói mẫu rút gọn 3-5 câu, đúng trình độ","pinyin":"pinyin","vi":"bản dịch"}},${BRK},"tip":"lời khuyên 1-2 câu"}
-Yêu cầu: rất ngắn gọn; "items" đúng ${b.ans.length} phần tử theo thứ tự; mỗi "errors" của phần 2 tối đa 3 lỗi, của phần 3 tối đa 5 lỗi; "breakdown" tổng hợp cả hai phần.`};
+Yêu cầu: rất ngắn gọn; "items" đúng ${b.ans.length} phần tử theo thứ tự; mỗi "errors" của phần 2 tối đa 3 lỗi, của phần 3 tối đa 5 lỗi; "breakdown" tổng hợp cả hai phần.`,
+structgen:b=>`Người học tiếng Trung (${lv(b.level)}) muốn luyện đặt câu với cấu trúc ngữ pháp: "${b.focus}".
+`+(b.note?`Giải thích cấu trúc (từ giáo trình của người học): ${b.note}\n`:'')+`Hãy đưa ra đúng 3 câu TIẾNG VIỆT, mỗi câu một ngữ cảnh đời thường khác nhau, để người học dịch sang tiếng Trung bằng ĐÚNG cấu trúc này. Câu tiếng Việt ngắn gọn, tự nhiên; từ vựng tiếng Trung tương ứng nằm trong phạm vi bậc ${b.level}; ý câu phải dịch tự nhiên được bằng cấu trúc đó (không ép gượng). Tránh các câu đã ra: ${JSON.stringify(b.prev)}.
+Trả về JSON: {"items":[{"vi":"câu tiếng Việt cần dịch","hint":"1-3 từ tiếng Trung gợi ý kèm pinyin và nghĩa, ví dụ: 超市 (chāoshì: siêu thị); để rỗng nếu không cần"}]} đúng 3 phần tử.`,
+structcheck:b=>`Người học tiếng Trung (${lv(b.level)}) luyện đặt câu với cấu trúc ngữ pháp: "${b.focus}".
+`+(b.note?`Giải thích cấu trúc (từ giáo trình của người học): ${b.note}\n`:'')+`Mỗi bài gồm một câu tiếng Việt và câu tiếng Trung người học viết: ${JSON.stringify(b.ans.map(x=>({viet:x.q,zh:x.a})))}
+Nhận xét bằng tiếng Việt. Với mỗi câu kiểm tra: (1) có dùng ĐÚNG cấu trúc yêu cầu không ("used"), (2) lỗi ngữ pháp, (3) lỗi từ vựng hoặc dùng sai từ, (4) nghĩa có khớp câu tiếng Việt không. Câu để trống: used=false, score 0, không liệt kê lỗi. ${ERR}
+Trả về JSON: {"score":số 0-100,${BRK},"items":[{"used":true,"score":số 0-100,"errors":[${ERRJ}],"better":"câu mẫu đúng, dùng đúng cấu trúc (giữ câu của người học nếu đã đúng)","pinyin":"pinyin của better","vi":"dịch better"}],"tip":"lời khuyên 1 câu"}
+Yêu cầu: rất ngắn gọn; "items" đúng ${b.ans.length} phần tử theo thứ tự; mỗi câu tối đa 3 lỗi; nếu người học không dùng cấu trúc yêu cầu thì thêm một lỗi type "Ngữ pháp" nói rõ thiếu cấu trúc nào; câu mẫu đúng trình độ.`
+};
 const THEMES=['ăn uống','du lịch','công việc','trường học','mua sắm','gia đình','sức khỏe','thời tiết','thể thao','công nghệ','sở thích','giao thông','nhà cửa','bạn bè','lễ hội'];
 const TH_LOW=[...THEMES,'bữa sáng','đi khám bệnh','hỏi đường','thuê nhà','gọi điện thoại','sinh nhật','mua quần áo','đi xe buýt','nuôi thú cưng','cuối tuần'];
 const TH_MID=['học ngoại ngữ','làm việc nhóm','du lịch tự túc','ăn uống lành mạnh','mạng xã hội','mua sắm trực tuyến','văn hóa truyền thống','thành phố thay đổi','khởi nghiệp','hoạt động tình nguyện','tiết kiệm tiền','thói quen mỗi ngày'];
@@ -125,18 +134,21 @@ http.createServer((req,res)=>{
     b.question=String(b.question||'').slice(0,500);b.line=String(b.line||'').slice(0,200);b.context=String(b.context||'').slice(0,400);b.lines=(Array.isArray(b.lines)?b.lines:[]).slice(0,40).map(x=>String(x).slice(0,120));b.qa=(Array.isArray(b.qa)?b.qa:[]).slice(-6).map(x=>({q:String((x&&x.q)||'').slice(0,300),a:String((x&&x.a)||'').slice(0,400)}));b.grammar=String(b.grammar||'').slice(0,300);b.focus=String(b.focus||'').slice(0,300);b.level=Math.min(9,Math.max(1,+b.level||2));b.desc=String(b.desc||'').slice(0,1500);
     b.partner=String(b.partner||'').slice(0,100);b.zh=String(b.zh||'').slice(0,300);
     b.topic=String(b.topic||'').slice(0,100);b.text=String(b.text||'').slice(0,600);b.words=(Array.isArray(b.words)?b.words:[]).slice(0,5).map(x=>String(x).slice(0,20));b.prev=(Array.isArray(b.prev)?b.prev:[]).slice(-30).map(x=>String(x).slice(0,20));b.sentences=(Array.isArray(b.sentences)?b.sentences:[]).slice(0,5).map(x=>String(x||'').slice(0,200));while(b.sentences.length<5)b.sentences.push('');b.seed=THEMES[Math.floor(Math.random()*THEMES.length)];
-    b.ans=(Array.isArray(b.ans)?b.ans:[]).slice(0,4).map(x=>({q:String((x&&x.q)||'').slice(0,200),a:String((x&&x.a)||'').slice(0,500)}));b.talk={q:String((b.talk&&b.talk.q)||'').slice(0,300),a:String((b.talk&&b.talk.a)||'').slice(0,1200)};b.theme=pickTheme(b.level,b.prev);
+    b.ans=(Array.isArray(b.ans)?b.ans:[]).slice(0,4).map(x=>({q:String((x&&x.q)||'').slice(0,200),a:String((x&&x.a)||'').slice(0,500)}));b.talk={q:String((b.talk&&b.talk.q)||'').slice(0,300),a:String((b.talk&&b.talk.a)||'').slice(0,1200)};b.theme=pickTheme(b.level,b.prev);b.note=String(b.note||'').slice(0,1500);
     b.history=(Array.isArray(b.history)?b.history:[]).slice(-30).map(x=>({role:x&&x.role==='me'?'me':'npc',zh:String((x&&x.zh)||'').slice(0,300)}));
     if(req.url==='/api/stream'){if(b.task!=='chat')return send(400,{error:'Yêu cầu không hợp lệ'});return await gemStream(P.chat(b),res)}
     const T=b.task;
     if(T==='picfb'&&!b.text.trim())return send(400,{error:'Hãy miêu tả bức tranh trước.'});
     if(T==='wordscheck'&&(b.words.length<5||!b.sentences.some(x=>x.trim())))return send(400,{error:'Hãy đặt ít nhất một câu.'});
     if(T==='testcheck'&&!b.ans.some(x=>x.a.trim())&&!b.talk.a.trim())return send(400,{error:'Hãy trả lời ít nhất một phần.'});
+    if(T==='structgen'&&!b.focus.trim())return send(400,{error:'Hãy chọn một cấu trúc trước.'});
+    if(T==='structcheck'&&(!b.focus.trim()||!b.ans.some(x=>x.a.trim())))return send(400,{error:'Hãy đặt ít nhất một câu.'});
     let imgs=[];
     if(T==='picfb'){const m=String(b.imgMime||''),d=String(b.imgData||'');if(!/^image\/(jpeg|png|webp)$/.test(m)||d.length<100||d.length>1.5e6||!/^[A-Za-z0-9+/]+={0,2}$/.test(d))return send(400,{error:'Ảnh không hợp lệ hoặc quá lớn, hãy chọn ảnh khác.'});imgs=[{inlineData:{mimeType:m,data:d}}]}
-    const out=await gem(P[T](b),T==='notes'||T==='words'?CHATM:T==='feedback'||T==='picfb'||T==='wordscheck'||T==='testcheck'?FBM:MODELS,{feedback:1200,picfb:2000,wordscheck:1200,words:400,testgen:1800,testcheck:2600}[T]||0,imgs);
+    const out=await gem(P[T](b),T==='notes'||T==='words'?CHATM:T==='feedback'||T==='picfb'||T==='wordscheck'||T==='testcheck'||T==='structcheck'?FBM:MODELS,{feedback:1200,picfb:2000,wordscheck:1200,words:400,testgen:1800,testcheck:2600,structgen:800,structcheck:2000}[T]||0,imgs);
     if(T==='words'){if(!Array.isArray(out.words)||out.words.length<5||out.words.some(w=>!w||!w.zh))throw new Error('AI chọn từ chưa đúng định dạng, thử lại.');out.words=out.words.slice(0,5)}
     if(T==='testgen'){const p1=out&&out.part1,ok=p1&&Array.isArray(p1.items)&&p1.items.length&&p1.items.every(x=>x&&x.zh)&&Array.isArray(out.part2)&&out.part2.length&&out.part2.every(x=>x&&x.zh)&&out.part3&&out.part3.zh;if(!ok)throw new Error('AI soạn đề chưa đúng định dạng, thử lại.');p1.mode=b.level>=5?'read':'repeat';p1.items=p1.items.slice(0,5);out.part2=out.part2.slice(0,4);out.theme=b.theme}
+    if(T==='structgen'){const ok=out&&Array.isArray(out.items)&&out.items.length&&out.items.every(x=>x&&x.vi);if(!ok)throw new Error('AI chưa ra đúng định dạng câu, thử lại.');out.items=out.items.slice(0,3).map(x=>({vi:String(x.vi).slice(0,200),hint:String(x.hint||'').slice(0,120)}))}
     if(b.task==='scenario'&&(!Array.isArray(out.dialogue)||out.dialogue.length<2||out.dialogue.some(d=>!d||!d.zh)))throw new Error('AI tạo bài chưa đúng định dạng, thử lại.');
     send(200,out);
    }catch(e){send(Number.isInteger(e.code)?e.code:500,{error:e.message||'Lỗi máy chủ'})}});
