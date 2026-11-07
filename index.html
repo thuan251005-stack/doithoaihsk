@@ -79,9 +79,9 @@ textarea{height:110px;resize:none}.cnt{text-align:right;color:var(--mu);font-siz
 .ntb{margin-top:8px;line-height:1.65;word-break:break-word}.nte textarea{height:42dvh;margin-top:8px}
 #nt{position:fixed;inset:0;background:#0006;display:none;align-items:flex-end;z-index:25}#nt.show{display:flex}#nt-b{flex:1;overflow-y:auto}
 </style></head><body>
-<div class="top"><h1>🎙 Luyện nói HSK <small style="font-size:11px;opacity:.75;font-weight:400">v9</small></h1><button onclick="openSet()" aria-label="Giọng đọc">🔊 Giọng</button></div>
+<div class="top"><h1>🎙 Luyện nói HSK <small style="font-size:11px;opacity:.75;font-weight:400">v10</small></h1><button onclick="openSet()" aria-label="Giọng đọc">🔊 Giọng</button></div>
 <div class="chips" id="lvchips"></div>
-<div class="tools"><button onclick="openPic()"><b>🖼 Nhìn tranh nói</b><small>Tải ảnh lên → miêu tả → AI chấm lỗi</small></button><button onclick="openWords()"><b>🔤 Đặt câu 5 từ</b><small>AI ra 5 từ → bạn đặt câu</small></button><button class="wide" onclick="openTest()"><b>📝 Kiểm tra nói</b><small>Đề theo bậc HSK bạn chọn, chủ đề ngẫu nhiên</small></button></div>
+<div class="tools"><button onclick="openPic()"><b>🖼 Nhìn tranh nói</b><small>Tải ảnh lên → miêu tả → AI chấm lỗi</small></button><button onclick="openWords()"><b>🔤 Đặt câu 5 từ</b><small>AI ra 5 từ → bạn đặt câu</small></button><button onclick="openStruct()"><b>🧩 Đặt câu theo cấu trúc</b><small>Chọn cấu trúc trong sổ → dịch câu Việt → AI chấm</small></button><button onclick="openTest()"><b>📝 Kiểm tra nói</b><small>Đề theo bậc HSK bạn chọn, chủ đề ngẫu nhiên</small></button></div>
 <div class="sec"><h2>Tình huống của tôi</h2><button class="new" onclick="openNew()">＋ Tạo mới</button></div>
 <div id="mine"></div>
 <div class="sec"><h2>Sổ cấu trúc ngữ pháp</h2><button class="new" onclick="newNb()">＋ Tạo sổ</button></div>
@@ -275,19 +275,23 @@ $('#msgs').addEventListener('click',e=>{const b=e.target.closest('[data-a]');if(
 function openPlay(sc0,mode,it){let sc=sc0;if(mode==='learn'&&st.swap)sc={...sc0,dialogue:sc0.dialogue.map(m=>({...m,role:m.role==='me'?'npc':'me'}))};sid++;askLog=[];askLine='';pl={sc,mode,lang:st.lang,i:0,hist:[],sug:[],res:{},it};$('#ntb').hidden=!(it&&ntFind(it).length);$('#rate').textContent=st.voice.rate+'x';$('#ptitle').textContent=sc.title;$('#psub').textContent=sc.partner;$('#play').classList.add('show');
  if(mode==='learn')stepL();else{render([]);turn()}}
 function closePlay(){sid++;busy=false;try{chatCtl&&chatCtl.abort()}catch{}closeAsk();try{speechSynthesis.cancel()}catch{}if(rec)rec.stop();$('#nt').classList.remove('show');pl=null;$('#play').classList.remove('show')}
-function endPlay(){if(!pl)return;if(pl.mode==='chat'&&pl.hist.some(h=>h.role==='me'))return feedback();closePlay()}
+function endPlay(){if(!pl)return;
+ if(pl.mode==='chat'){if(pl.hist.some(h=>h.role==='me'))return feedback();toast('Hãy nói ít nhất một câu để được nhận xét');return}
+ if(pl.mode==='learn'&&pl.end==null){const d=pl.sc.dialogue;if(!Object.keys(pl.res).length){toast('Bạn chưa nói câu nào để chấm. Bấm ‹ nếu muốn thoát');return}
+  try{if(rec)rec.stop()}catch{}pl.end=pl.i;pl.i=d.length;return stepL()}
+ closePlay()}
 /* learning mode */
 const cur=()=>pl.sc.dialogue[pl.i];
 function stepL(){const d=pl.sc.dialogue;try{speechSynthesis.cancel()}catch{}
- if(pl.i>=d.length){render(d);const rs=Object.values(pl.res),a=rs.length?Math.round(rs.reduce((x,y)=>x+y.pct,0)/rs.length):0;
+ if(pl.i>=d.length){render(pl.end==null?d:d.slice(0,pl.end));const rs=Object.values(pl.res),a=rs.length?Math.round(rs.reduce((x,y)=>x+y.pct,0)/rs.length):0;
   $('#msgs').insertAdjacentHTML('beforeend',sumL(d));$('#msgs').scrollTop=1e6;
-  return foot(`<div class="done">🎉 Hoàn thành! Điểm trung bình: ${a}%</div><div class="fr"><button class="pill" onclick="pl.i=0;pl.res={};stepL()">🔁 Làm lại</button><button class="pill g" onclick="closePlay()">Xong</button></div>`)}
+  return foot(`<div class="done">${pl.end==null?'🎉 Hoàn thành!':'📋 Kết quả phần đã luyện:'} Điểm trung bình: ${a}%</div><div class="fr"><button class="pill" onclick="pl.i=0;pl.end=null;pl.res={};stepL()">🔁 Làm lại</button><button class="pill g" onclick="closePlay()">Xong</button></div>`)}
  const m=d[pl.i];render(d.slice(0,pl.i+1));
  if(m.role==='npc'){say(m.zh,()=>{if(pl&&d[pl.i]===m)setTimeout(()=>{if(pl&&d[pl.i]===m){pl.i++;stepL()}},500)});foot(`<div class="fr"><button class="pill" onclick="say(cur().zh)">🔊</button><button class="pill g" onclick="pl.i++;stepL()">Tiếp ›</button></div>`)}
  else{footMe()}}
 function footMe(next){foot(`<div class="fr"><button class="pill" onclick="say(cur().zh)">🔊 Nghe mẫu</button><button id="mic" class="mic" onclick="micL()">🎤</button>${next?'<button class="pill g" onclick="pl.i++;stepL()">Tiếp ›</button>':'<button class="pill" onclick="pl.i++;stepL()">Bỏ qua ›</button>'}</div>`)}
 function micL(){micToggle(t=>{if(!pl)return;const m=cur(),s=score(m.zh,t);pl.res[pl.i]={zh:m.zh,vi:m.vi,said:t,pct:s.pct,html:s.html,miss:s.miss};$('#res').innerHTML=`<div class="sc">${s.pct}% ${s.pct>=80?'🌟 Rất tốt':s.pct>=60?'👍 Khá':'🔁 Thử lại nhé'}</div><div class="cmp zh">${s.html}</div>`;footMe(s.pct>=60);$('#msgs').scrollTop=1e6},t=>{const r=$('#res');if(r)r.innerHTML=`<div class="vic">${esc(t)}</div>`})}
-function sumL(d){const me=d.map((m,i)=>[m,i]).filter(x=>x[0].role==='me');if(!me.length)return'';
+function sumL(d){const lim=pl.end==null?d.length:pl.end,me=d.map((m,i)=>[m,i]).filter(x=>x[0].role==='me'&&x[1]<lim);if(!me.length)return'';
  const said=me.filter(x=>pl.res[x[1]]).length,bad=me.filter(x=>!pl.res[x[1]]||pl.res[x[1]].pct<80);
  return `<div class="gm"><b>📋 Tổng kết lỗi</b><div class="vic">Đã nói ${said}/${me.length} câu · cần luyện lại ${bad.length} câu</div></div>`+(bad.length?bad.map(([m,i])=>{const r=pl.res[i];return `<div class="gm">${r?`<div class="sc">${r.pct}% · sai hoặc thiếu ${r.miss} chữ</div><div class="cmp zh">${r.html}</div><div class="vic">Bạn nói: ${esc(r.said)}</div>`:`<div class="vic">Chưa luyện câu này</div><div class="zh">${esc(m.zh)}</div>`}<div class="vic">${esc(m.pinyin||'')}</div><div class="vic">${esc(m.vi||'')}</div><button class="pill" style="margin-top:6px" data-t="${esc(m.zh)}" onclick="say(this.dataset.t)">🔊 Nghe lại</button></div>`}).join(''):'<div class="gm">🌟 Tất cả các câu đều đạt từ 80% trở lên!</div>')}
 /* chat mode */
@@ -321,7 +325,7 @@ function sendT(t){t=(t||'').trim();if(!t||busy||!pl)return;pl.hist.push({role:'m
 async function feedback(){modal('<h3>Nhận xét buổi hội thoại</h3><p class="dots">AI đang chấm</p>');
  try{const r=await ai('feedback',{level:pl.sc.lv,focus:focusOf(pl.sc),history:pl.hist.slice(-16).map(h=>({role:h.role,zh:h.zh}))});
   modal(`<h3>Điểm: ${esc(r.score)}/100</h3>${brkHtml(r.breakdown)}<p>👍 ${esc(r.good)}</p>${r.grammar?`<p>📐 ${esc(r.grammar)}</p>`:''}${errBlock(r.errors||r.fixes)}<p>💡 ${esc(r.tip)}</p><div class="row2"><button class="btn p" onclick="closeModal();closePlay()">Xong</button></div>`)}
- catch(e){closeModal();toast(e.message);closePlay()}}
+ catch(e){closeModal();toast(e.message)}}
 /* ---------- nhìn tranh nói + đặt câu 5 từ ---------- */
 let xlv=LS.get('xlv',2);
 function lvChips(id){const el=$('#'+id),paint=()=>el.innerHTML=[1,2,3,4,5,6,7,8,9].map(n=>`<button class="chip ${xlv===n?'on':''}" data-l="${n}">${n}</button>`).join('');paint();el.onclick=e=>{const n=+e.target.dataset.l;if(n){xlv=n;LS.set('xlv',n);paint()}}}
@@ -433,5 +437,38 @@ async function tsCheck(){const d=ts.data,rd=d.part1.mode==='read',v=id=>($('#'+i
   $('#ts-r').scrollIntoView({behavior:'smooth',block:'nearest'})}
  catch(e){$('#ts-r').innerHTML='';toast(e.message)}
  b.disabled=false;b.textContent='Nộp bài và chấm'}
+/* đặt câu theo cấu trúc trong sổ */
+let sg={sel:'',cur:null,prev:[]};
+const nbAll=()=>st.nb.flatMap(nb=>nb.items.map(it=>({nb,it})));
+function openStruct(){const all=nbAll();
+ modal(`<h3>🧩 Đặt câu theo cấu trúc</h3><div class="vic">Chọn một cấu trúc trong sổ. Máy đưa câu tiếng Việt, bạn dịch sang tiếng Trung bằng đúng cấu trúc đó (nói hoặc gõ), rồi AI chấm cấu trúc, ngữ pháp và từ vựng.</div>
+ ${all.length?`<label>Cấu trúc</label><select id="sg-s"><option value="">🎲 Ngẫu nhiên trong sổ</option>${st.nb.filter(nb=>nb.items.length).map(nb=>`<optgroup label="${esc(nb.name)}">${nb.items.map(it=>`<option value="${esc(nb.id)}|${esc(it.id)}">${esc(it.t)}</option>`).join('')}</optgroup>`).join('')}</select>
+ <label>Trình độ HSK</label><div class="lvs" id="sg-l"></div><div class="row2"><button class="btn p" id="sg-g">🎲 Cho tôi câu</button></div>`:'<div class="empty">Sổ cấu trúc đang trống. Hãy tạo sổ và thêm cấu trúc ở mục “Sổ cấu trúc ngữ pháp” trước.</div>'}
+ <div id="sg-b"></div><div id="sg-r"></div><div class="row2"><button class="btn" onclick="closeModal()">Đóng</button></div>`);
+ if(!all.length)return;const s=$('#sg-s');s.value=sg.sel;if(s.value!==sg.sel)sg.sel='';s.onchange=()=>{sg.sel=s.value};
+ lvChips('sg-l');$('#sg-g').onclick=sgGet;if(sg.cur)sgShow()}
+async function sgGet(){let pick=null;const all=nbAll();
+ if(sg.sel){const[n,i]=sg.sel.split('|'),nb=st.nb.find(x=>x.id===n),it=nb&&nb.items.find(x=>x.id===i);if(it)pick={nb,it}}
+ if(!pick){if(!all.length)return toast('Sổ đang trống');const last=sg.cur&&sg.cur.pick.it.id,a=all.length>1?all.filter(x=>x.it.id!==last):all;pick=a[Math.floor(Math.random()*a.length)]}
+ const g=$('#sg-g');g.disabled=true;g.textContent='Đang soạn câu…';$('#sg-r').innerHTML='';
+ try{const r=await ai('structgen',{level:xlv,focus:pick.it.t,note:pick.it.note||'',prev:sg.prev});
+  sg.cur={pick,items:r.items,level:xlv};sg.prev=[...sg.prev,...r.items.map(x=>String(x.vi).slice(0,20))].slice(-12);sgShow()}
+ catch(e){toast(e.message);g.textContent=sg.cur?'🎲 Câu khác':'🎲 Cho tôi câu'}
+ g.disabled=false}
+function sgShow(){const c=sg.cur;$('#sg-g').textContent='🎲 Câu khác';$('#sg-r').innerHTML='';
+ $('#sg-b').innerHTML=`<div class="gm"><b>Cấu trúc: ${esc(c.pick.it.t)}</b> <span class="badge">HSK${esc(c.level)}</span>${c.pick.it.note?'<div><button class="pill" id="sg-n" style="margin-top:6px">📖 Xem giải thích</button></div>':''}</div>
+ <label>Dịch sang tiếng Trung, dùng đúng cấu trúc này</label>
+ ${c.items.map((x,k)=>`<div class="tsi"><div class="zhc">${k+1}. ${esc(x.vi)}</div>${x.hint?`<div class="vic">Gợi ý: ${esc(x.hint)}</div>`:''}<div class="wrow"><input class="ti" id="sg-x${k}" maxlength="200" placeholder="Câu tiếng Trung…"><button class="mic" id="sg-m${k}">🎤</button></div></div>`).join('')}
+ <div class="row2"><button class="btn p" id="sg-c">Chấm bài</button></div>`;
+ c.items.forEach((_,k)=>attachMic($('#sg-m'+k),$('#sg-x'+k)));const n=$('#sg-n');if(n)n.onclick=()=>ntOpen([c.pick]);$('#sg-c').onclick=sgCheck}
+async function sgCheck(){const c=sg.cur,ss=c.items.map((_,k)=>$('#sg-x'+k).value.trim());if(!ss.some(Boolean))return toast('Hãy đặt ít nhất một câu');
+ if(rec)rec.stop();const b=$('#sg-c');b.disabled=true;b.textContent='Đang chấm…';$('#sg-r').innerHTML='<p class="dots">AI đang chấm</p>';
+ try{const r=await ai('structcheck',{level:c.level,focus:c.pick.it.t,note:c.pick.it.note||'',ans:c.items.map((x,k)=>({q:x.vi,a:ss[k]}))});
+  const it=r.items||[],used=it.filter((x,k)=>x&&x.used&&ss[k]).length,errs=it.flatMap((x,k)=>ss[k]&&x&&x.errors||[]);
+  $('#sg-r').innerHTML=`<div class="gm"><b>Điểm: ${esc(r.score)}/100</b>${brkHtml(r.breakdown)}<div class="vic">Dùng đúng cấu trúc: ${used}/${c.items.length} câu</div>${errs.length?`<div>${cnt(errs)}</div>`:''}</div>
+  ${c.items.map((x,k)=>{const o=it[k]||{};return `<div class="gm"><div class="zhc">${k+1}. ${esc(x.vi)}</div><div class="vic">Bạn viết: ${esc(ss[k]||'(chưa đặt câu)')}</div>${ss[k]?`<div class="vic">${o.used?'✅ Đúng cấu trúc':'❌ Chưa đúng cấu trúc'}${o.score!=null?' · '+esc(o.score)+'/100':''}</div>`:''}${(o.errors||[]).length&&ss[k]?errHtml(o.errors):ss[k]?'<div class="vic">✅ Không có lỗi đáng kể</div>':''}${o.better?`<div class="vic">Câu mẫu:</div><div class="zhc">${esc(o.better)}</div><div class="vic">${esc(o.pinyin||'')}</div><div class="vic">${esc(o.vi||'')}</div><button class="pill" style="margin-top:6px" data-t="${esc(o.better)}" onclick="say(this.dataset.t)">🔊</button>`:''}</div>`}).join('')}${r.tip?`<p>💡 ${esc(r.tip)}</p>`:''}`;
+  $('#sg-r').scrollIntoView({behavior:'smooth',block:'nearest'})}
+ catch(e){$('#sg-r').innerHTML='';toast(e.message)}
+ b.disabled=false;b.textContent='Chấm bài'}
 home();
 </script></body></html>
