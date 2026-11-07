@@ -78,8 +78,9 @@ textarea{height:110px;resize:none}.cnt{text-align:right;color:var(--mu);font-siz
 .nth{display:flex;justify-content:space-between;align-items:center;gap:8px}.nth b{flex:1;min-width:0;word-break:break-word}.nth .pill{flex:0 0 auto;padding:6px 12px}
 .ntb{margin-top:8px;line-height:1.65;word-break:break-word}.nte textarea{height:42dvh;margin-top:8px}
 #nt{position:fixed;inset:0;background:#0006;display:none;align-items:flex-end;z-index:25}#nt.show{display:flex}#nt-b{flex:1;overflow-y:auto}
+.sgl{max-height:34dvh;overflow:auto;border:1px solid var(--ln);border-radius:14px}.sgi{display:block;width:100%;text-align:left;padding:10px 12px;border-bottom:1px solid var(--ln);word-break:break-word;line-height:1.4}.sgi:last-child{border-bottom:0}.sgi.on{background:#eefaf4;font-weight:700;color:#0a8f86}
 </style></head><body>
-<div class="top"><h1>🎙 Luyện nói HSK <small style="font-size:11px;opacity:.75;font-weight:400">v10</small></h1><button onclick="openSet()" aria-label="Giọng đọc">🔊 Giọng</button></div>
+<div class="top"><h1>🎙 Luyện nói HSK <small style="font-size:11px;opacity:.75;font-weight:400">v11</small></h1><button onclick="openSet()" aria-label="Giọng đọc">🔊 Giọng</button></div>
 <div class="chips" id="lvchips"></div>
 <div class="tools"><button onclick="openPic()"><b>🖼 Nhìn tranh nói</b><small>Tải ảnh lên → miêu tả → AI chấm lỗi</small></button><button onclick="openWords()"><b>🔤 Đặt câu 5 từ</b><small>AI ra 5 từ → bạn đặt câu</small></button><button onclick="openStruct()"><b>🧩 Đặt câu theo cấu trúc</b><small>Chọn cấu trúc trong sổ → dịch câu Việt → AI chấm</small></button><button onclick="openTest()"><b>📝 Kiểm tra nói</b><small>Đề theo bậc HSK bạn chọn, chủ đề ngẫu nhiên</small></button></div>
 <div class="sec"><h2>Tình huống của tôi</h2><button class="new" onclick="openNew()">＋ Tạo mới</button></div>
@@ -438,18 +439,25 @@ async function tsCheck(){const d=ts.data,rd=d.part1.mode==='read',v=id=>($('#'+i
  catch(e){$('#ts-r').innerHTML='';toast(e.message)}
  b.disabled=false;b.textContent='Nộp bài và chấm'}
 /* đặt câu theo cấu trúc trong sổ */
-let sg={sel:'',cur:null,prev:[]};
+let sg={nb:'',sel:'',cur:null,prev:[]};
 const nbAll=()=>st.nb.flatMap(nb=>nb.items.map(it=>({nb,it})));
-function openStruct(){const all=nbAll();
- modal(`<h3>🧩 Đặt câu theo cấu trúc</h3><div class="vic">Chọn một cấu trúc trong sổ. Máy đưa câu tiếng Việt, bạn dịch sang tiếng Trung bằng đúng cấu trúc đó (nói hoặc gõ), rồi AI chấm cấu trúc, ngữ pháp và từ vựng.</div>
- ${all.length?`<label>Cấu trúc</label><select id="sg-s"><option value="">🎲 Ngẫu nhiên trong sổ</option>${st.nb.filter(nb=>nb.items.length).map(nb=>`<optgroup label="${esc(nb.name)}">${nb.items.map(it=>`<option value="${esc(nb.id)}|${esc(it.id)}">${esc(it.t)}</option>`).join('')}</optgroup>`).join('')}</select>
+function openStruct(){const bks=st.nb.filter(n=>n.items.length);
+ modal(`<h3>🧩 Đặt câu theo cấu trúc</h3><div class="vic">Chọn sổ, rồi chọn cấu trúc. Máy đưa câu tiếng Việt, bạn dịch sang tiếng Trung bằng đúng cấu trúc đó (nói hoặc gõ), rồi AI chấm cấu trúc, ngữ pháp và từ vựng.</div>
+ ${bks.length?`<label>1. Chọn sổ</label><div class="wcs" id="sg-nbs"></div><label>2. Chọn cấu trúc</label><div class="sgl" id="sg-its"></div>
  <label>Trình độ HSK</label><div class="lvs" id="sg-l"></div><div class="row2"><button class="btn p" id="sg-g">🎲 Cho tôi câu</button></div>`:'<div class="empty">Sổ cấu trúc đang trống. Hãy tạo sổ và thêm cấu trúc ở mục “Sổ cấu trúc ngữ pháp” trước.</div>'}
  <div id="sg-b"></div><div id="sg-r"></div><div class="row2"><button class="btn" onclick="closeModal()">Đóng</button></div>`);
- if(!all.length)return;const s=$('#sg-s');s.value=sg.sel;if(s.value!==sg.sel)sg.sel='';s.onchange=()=>{sg.sel=s.value};
- lvChips('sg-l');$('#sg-g').onclick=sgGet;if(sg.cur)sgShow()}
-async function sgGet(){let pick=null;const all=nbAll();
- if(sg.sel){const[n,i]=sg.sel.split('|'),nb=st.nb.find(x=>x.id===n),it=nb&&nb.items.find(x=>x.id===i);if(it)pick={nb,it}}
- if(!pick){if(!all.length)return toast('Sổ đang trống');const last=sg.cur&&sg.cur.pick.it.id,a=all.length>1?all.filter(x=>x.it.id!==last):all;pick=a[Math.floor(Math.random()*a.length)]}
+ if(!bks.length)return;
+ if(sg.nb&&!bks.some(n=>n.id===sg.nb))sg.nb='';
+ const cur=bks.find(n=>n.id===sg.nb);if(!cur||!cur.items.some(i=>i.id===sg.sel))sg.sel='';
+ $('#sg-nbs').onclick=e=>{const b=e.target.closest('[data-nb]');if(!b)return;sg.nb=b.dataset.nb;sg.sel='';sgPick()};
+ $('#sg-its').onclick=e=>{const b=e.target.closest('[data-it]');if(!b)return;sg.sel=b.dataset.it;sgPick()};
+ sgPick();lvChips('sg-l');$('#sg-g').onclick=sgGet;if(sg.cur)sgShow()}
+function sgPick(){const bks=st.nb.filter(n=>n.items.length),cur=bks.find(n=>n.id===sg.nb),tot=bks.reduce((x,n)=>x+n.items.length,0);
+ $('#sg-nbs').innerHTML=`<button class="wc ${cur?'':'on'}" data-nb=""><b>🎲 Tất cả các sổ</b><small>${tot} cấu trúc</small></button>`+bks.map(n=>`<button class="wc ${cur&&cur.id===n.id?'on':''}" data-nb="${esc(n.id)}"><b>📒 ${esc(n.name||'Sổ chưa đặt tên')}</b><small>${n.items.length} cấu trúc</small></button>`).join('');
+ $('#sg-its').innerHTML=cur?`<button class="sgi ${sg.sel?'':'on'}" data-it="">🎲 Ngẫu nhiên trong sổ này</button>`+cur.items.map(i=>`<button class="sgi ${sg.sel===i.id?'on':''}" data-it="${esc(i.id)}">${esc(i.t)}${i.note?' 📖':''}</button>`).join(''):'<div class="vic" style="padding:10px 12px">Đang chọn ngẫu nhiên trong tất cả các sổ. Chọn một sổ ở trên để chọn cấu trúc cụ thể.</div>'}
+async function sgGet(){const nb=sg.nb&&st.nb.find(x=>x.id===sg.nb);let pick=null;
+ if(nb&&sg.sel){const it=nb.items.find(x=>x.id===sg.sel);if(it)pick={nb,it}}
+ if(!pick){const all=nb?nb.items.map(it=>({nb,it})):nbAll();if(!all.length)return toast(nb?'Sổ này đang trống':'Sổ đang trống');const last=sg.cur&&sg.cur.pick.it.id,a=all.length>1?all.filter(x=>x.it.id!==last):all;pick=a[Math.floor(Math.random()*a.length)]}
  const g=$('#sg-g');g.disabled=true;g.textContent='Đang soạn câu…';$('#sg-r').innerHTML='';
  try{const r=await ai('structgen',{level:xlv,focus:pick.it.t,note:pick.it.note||'',prev:sg.prev});
   sg.cur={pick,items:r.items,level:xlv};sg.prev=[...sg.prev,...r.items.map(x=>String(x.vi).slice(0,20))].slice(-12);sgShow()}
