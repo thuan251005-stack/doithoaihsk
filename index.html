@@ -79,7 +79,9 @@ textarea{height:110px;resize:none}.cnt{text-align:right;color:var(--mu);font-siz
 .ntb{margin-top:8px;line-height:1.65;word-break:break-word}.nte textarea{height:42dvh;margin-top:8px}
 #nt{position:fixed;inset:0;background:#0006;display:none;align-items:flex-end;z-index:25}#nt.show{display:flex}#nt-b{flex:1;overflow-y:auto}
 .sgl{max-height:34dvh;overflow:auto;border:1px solid var(--ln);border-radius:14px}.sgi{display:block;width:100%;text-align:left;padding:10px 12px;border-bottom:1px solid var(--ln);word-break:break-word;line-height:1.4}.sgi:last-child{border-bottom:0}.sgi.on{background:#eefaf4;font-weight:700;color:#0a8f86}
-</style></head><body>
+.cmp .tone{color:#d9822b;text-decoration:underline dotted}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.19.6/dist/index.js"></script></head><body>
 <div class="top"><h1>🎙 Luyện nói HSK <small style="font-size:11px;opacity:.75;font-weight:400">v11</small></h1><button onclick="openSet()" aria-label="Giọng đọc">🔊 Giọng</button></div>
 <div class="chips" id="lvchips"></div>
 <div class="tools"><button onclick="openPic()"><b>🖼 Nhìn tranh nói</b><small>Tải ảnh lên → miêu tả → AI chấm lỗi</small></button><button onclick="openWords()"><b>🔤 Đặt câu 5 từ</b><small>AI ra 5 từ → bạn đặt câu</small></button><button onclick="openStruct()"><b>🧩 Đặt câu theo cấu trúc</b><small>Chọn cấu trúc trong sổ → dịch câu Việt → AI chấm</small></button><button onclick="openTest()"><b>📝 Kiểm tra nói</b><small>Đề theo bậc HSK bạn chọn, chủ đề ngẫu nhiên</small></button></div>
@@ -232,20 +234,30 @@ function openSet(){const vs=voices();
 if('speechSynthesis' in window)speechSynthesis.onvoiceschanged=()=>{};
 const SILENCE_MS=5000,FIRST_MS=8000;
 function listen(onres,onend){const R=window.SpeechRecognition||window.webkitSpeechRecognition;if(!R){toast('Trình duyệt không hỗ trợ nhận diện giọng nói. Hãy gõ chữ.');return null}
- const r=new R();r.lang='zh-CN';r.interimResults=true;r.continuous=true;let fin='',tm;
+ const r=new R();r.lang='zh-CN';r.interimResults=true;r.continuous=true;r.maxAlternatives=5;let fin='',tm,alts=[];
  const bump=ms=>{clearTimeout(tm);tm=setTimeout(()=>{try{r.stop()}catch{}},ms)};
  r.onstart=()=>bump(FIRST_MS);
- r.onresult=e=>{let t='';for(const x of e.results)t+=x[0].transcript;fin=t;onres(t);bump(SILENCE_MS)};
+ r.onresult=e=>{let t='';const R=[...e.results];for(const x of R)t+=x[0].transcript;fin=t;const n=Math.max(...R.map(x=>x.length));alts=[];for(let k=0;k<n;k++)alts.push(R.map(x=>(x[k]||x[0]).transcript).join(''));onres(t);bump(SILENCE_MS)};
  r.onerror=e=>toast(e.error==='not-allowed'?'Hãy cho phép dùng micro cho trang này':e.error==='no-speech'?'Chưa nghe thấy giọng, thử lại nhé':'Không nghe rõ, thử lại nhé');
- r.onend=()=>{clearTimeout(tm);rec=null;onend(fin)};try{r.start()}catch{return null}return r}
+ r.onend=()=>{clearTimeout(tm);rec=null;onend(fin,alts)};try{r.start()}catch{return null}return r}
 function micToggle(cb,live,sel='#mic'){if(rec){rec.stop();return}try{speechSynthesis.cancel()}catch{}
- const m=$(sel);m?.classList.add('rec');rec=listen(live,t=>{m?.classList.remove('rec');if(t)cb(t)});if(!rec)m?.classList.remove('rec')}
+ const m=$(sel);m?.classList.add('rec');rec=listen(live,(t,a)=>{m?.classList.remove('rec');if(t)cb(t,a)});if(!rec)m?.classList.remove('rec')}
 /* ---------- scoring ---------- */
-const norm=s=>s.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g,'');
-function score(target,said){const a=[...norm(target)],b=[...norm(said)],m=a.length,n=b.length;const d=Array.from({length:m+1},()=>Array(n+1).fill(0));
- for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)d[i][j]=a[i-1]===b[j-1]?d[i-1][j-1]+1:Math.max(d[i-1][j],d[i][j-1]);
- const ok=Array(m).fill(false);let i=m,j=n;while(i&&j){if(a[i-1]===b[j-1]){ok[i-1]=true;i--;j--}else if(d[i-1][j]>=d[i][j-1])i--;else j--}
- return{miss:m-d[m][n],pct:m?Math.round(d[m][n]/Math.max(m,n)*100):0,html:a.map((c,k)=>`<span class="${ok[k]?'ok':'bad'}">${esc(c)}</span>`).join('')}}
+const D2Z='零一二三四五六七八九';
+const n2z=n=>{n=+n;if(n<10)return D2Z[n];if(n<20)return '十'+(n%10?D2Z[n%10]:'');return D2Z[Math.floor(n/10)]+'十'+(n%10?D2Z[n%10]:'')};
+const norm=s=>String(s||'').replace(/\d+/g,m=>m.length<=2?n2z(m):[...m].map(d=>D2Z[d]).join('')).replace(/[^\u3400-\u9fffa-zA-Z]/g,'');
+const pyArr=a=>{try{const P=window.pinyinPro;if(!P||!a.length)return null;const r=P.pinyin(a.join(''),{toneType:'num',type:'array'});return r&&r.length===a.length?r:null}catch{return null}};
+const pyBase=p=>String(p).replace(/\d/g,'');
+function scoreOne(target,said){const a=[...norm(target)],b=[...norm(said)],m=a.length,n=b.length,pa=pyArr(a),pb=pyArr(b);
+ /* 1 = đúng chữ hoặc đồng âm cùng thanh; 0.5 = đúng âm nhưng sai thanh; 0 = sai */
+ const w=(i,j)=>{if(a[i]===b[j])return 1;if(pa&&pb){if(pa[i]===pb[j])return 1;if(pyBase(pa[i])===pyBase(pb[j]))return .5}return 0};
+ const d=Array.from({length:m+1},()=>Array(n+1).fill(0));
+ for(let i=1;i<=m;i++)for(let j=1;j<=n;j++){const x=w(i-1,j-1);d[i][j]=Math.max(d[i-1][j],d[i][j-1],x?d[i-1][j-1]+x:0)}
+ const cls=Array(m).fill('bad');let i=m,j=n;
+ while(i&&j){const x=w(i-1,j-1);if(x&&d[i][j]===d[i-1][j-1]+x){cls[i-1]=x===1?'ok':'tone';i--;j--}else if(d[i-1][j]>=d[i][j-1])i--;else j--}
+ return{said,miss:cls.filter(c=>c!=='ok').length,pct:m?Math.round(d[m][n]/Math.max(m,n)*100):0,html:a.map((c,k)=>`<span class="${cls[k]}">${esc(c)}</span>`).join('')}}
+/* chọn phương án nhận diện gần câu mẫu nhất */
+function score(target,said,alts){const c=[said,...(alts||[])].filter((x,k,r)=>x&&r.indexOf(x)===k);if(!c.length)c.push(said||'');let best=null;for(const t of c){const r=scoreOne(target,t);if(!best||r.pct>best.pct)best=r}return best}
 /* ---------- hỏi AI về bài ---------- */
 let askLog=[],askLine='',askBusy=false;
 const ASKQ=['Giải thích ngữ pháp bài này','Từ vựng quan trọng trong bài','Cho thêm ví dụ tương tự','Câu này dùng khi nào?'];
@@ -291,7 +303,7 @@ function stepL(){const d=pl.sc.dialogue;try{speechSynthesis.cancel()}catch{}
  if(m.role==='npc'){say(m.zh,()=>{if(pl&&d[pl.i]===m)setTimeout(()=>{if(pl&&d[pl.i]===m){pl.i++;stepL()}},500)});foot(`<div class="fr"><button class="pill" onclick="say(cur().zh)">🔊</button><button class="pill g" onclick="pl.i++;stepL()">Tiếp ›</button></div>`)}
  else{footMe()}}
 function footMe(next){foot(`<div class="fr"><button class="pill" onclick="say(cur().zh)">🔊 Nghe mẫu</button><button id="mic" class="mic" onclick="micL()">🎤</button>${next?'<button class="pill g" onclick="pl.i++;stepL()">Tiếp ›</button>':'<button class="pill" onclick="pl.i++;stepL()">Bỏ qua ›</button>'}</div>`)}
-function micL(){micToggle(t=>{if(!pl)return;const m=cur(),s=score(m.zh,t);pl.res[pl.i]={zh:m.zh,vi:m.vi,said:t,pct:s.pct,html:s.html,miss:s.miss};$('#res').innerHTML=`<div class="sc">${s.pct}% ${s.pct>=80?'🌟 Rất tốt':s.pct>=60?'👍 Khá':'🔁 Thử lại nhé'}</div><div class="cmp zh">${s.html}</div>`;footMe(s.pct>=60);$('#msgs').scrollTop=1e6},t=>{const r=$('#res');if(r)r.innerHTML=`<div class="vic">${esc(t)}</div>`})}
+function micL(){micToggle((t,al)=>{if(!pl)return;const m=cur(),s=score(m.zh,t,al);pl.res[pl.i]={zh:m.zh,vi:m.vi,said:s.said,pct:s.pct,html:s.html,miss:s.miss};$('#res').innerHTML=`<div class="sc">${s.pct}% ${s.pct>=80?'🌟 Rất tốt':s.pct>=60?'👍 Khá':'🔁 Thử lại nhé'}</div><div class="cmp zh">${s.html}</div><div class="vic">Máy nghe: ${esc(s.said)}</div>${s.html.includes('class="tone"')?'<div class="vic">🟠 Đúng âm nhưng sai thanh điệu</div>':''}`;footMe(s.pct>=60);$('#msgs').scrollTop=1e6},t=>{const r=$('#res');if(r)r.innerHTML=`<div class="vic">${esc(t)}</div>`})}
 function sumL(d){const lim=pl.end==null?d.length:pl.end,me=d.map((m,i)=>[m,i]).filter(x=>x[0].role==='me'&&x[1]<lim);if(!me.length)return'';
  const said=me.filter(x=>pl.res[x[1]]).length,bad=me.filter(x=>!pl.res[x[1]]||pl.res[x[1]].pct<80);
  return `<div class="gm"><b>📋 Tổng kết lỗi</b><div class="vic">Đã nói ${said}/${me.length} câu · cần luyện lại ${bad.length} câu</div></div>`+(bad.length?bad.map(([m,i])=>{const r=pl.res[i];return `<div class="gm">${r?`<div class="sc">${r.pct}% · sai hoặc thiếu ${r.miss} chữ</div><div class="cmp zh">${r.html}</div><div class="vic">Bạn nói: ${esc(r.said)}</div>`:`<div class="vic">Chưa luyện câu này</div><div class="zh">${esc(m.zh)}</div>`}<div class="vic">${esc(m.pinyin||'')}</div><div class="vic">${esc(m.vi||'')}</div><button class="pill" style="margin-top:6px" data-t="${esc(m.zh)}" onclick="say(this.dataset.t)">🔊 Nghe lại</button></div>`}).join(''):'<div class="gm">🌟 Tất cả các câu đều đạt từ 80% trở lên!</div>')}
