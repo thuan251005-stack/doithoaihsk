@@ -149,7 +149,28 @@ http.createServer((req,res)=>{
     let imgs=[];
     if(T==='speech'){
      const mime=String(b.audioMime||''),audio=String(b.audioData||''),target=String(b.target||'').trim().slice(0,160);
-     if(!/^audio\\/(webm|mp4|ogg|wav|mpeg|aac)(;.*)?$/i.test(mime)||audio.length<1000||audio.length>6.5e6||!/^[A-Za-z0-9+/]+={0,2}$/.test(audio)||!target)return send(400,{error:'Bản ghi âm hoặc câu mẫu không hợp lệ.'});
+     if(!new RegExp('^audio/(webm|mp4|ogg|wav|mpeg|aac)(;.*)?||audio.length<1000||audio.length>6.5e6||!/^[A-Za-z0-9+/]+={0,2}$/.test(audio)||!target)return send(400,{error:'Bản ghi âm hoặc câu mẫu không hợp lệ.'});
+     b.target=target;imgs=[{inlineData:{mimeType:mime.split(';')[0],data:audio}}];
+    }
+    if(T==='picfb'){const m=String(b.imgMime||''),d=String(b.imgData||'');if(!/^image\/(jpeg|png|webp)$/.test(m)||d.length<100||d.length>1.5e6||!/^[A-Za-z0-9+/]+={0,2}$/.test(d))return send(400,{error:'Ảnh không hợp lệ hoặc quá lớn, hãy chọn ảnh khác.'});imgs=[{inlineData:{mimeType:m,data:d}}]}
+    const out=await gem(P[T](b),T==='notes'||T==='words'?CHATM:T==='feedback'||T==='picfb'||T==='wordscheck'||T==='testcheck'||T==='structcheck'?FBM:MODELS,{feedback:1200,picfb:2000,wordscheck:1200,words:400,testgen:1800,testcheck:2600,structgen:800,structcheck:2000,speech:900}[T]||0,imgs);
+    if(T==='speech'&&(!out||typeof out.transcript!=='string'||typeof out.score!=='number'))throw new Error('Gemini chưa phân tích được bản ghi âm.');
+    if(T==='words'){if(!Array.isArray(out.words)||out.words.length<5||out.words.some(w=>!w||!w.zh))throw new Error('AI chọn từ chưa đúng định dạng, thử lại.');out.words=out.words.slice(0,5)}
+    if(T==='testgen'){const p1=out&&out.part1,ok=p1&&Array.isArray(p1.items)&&p1.items.length&&p1.items.every(x=>x&&x.zh)&&Array.isArray(out.part2)&&out.part2.length&&out.part2.every(x=>x&&x.zh)&&out.part3&&out.part3.zh;if(!ok)throw new Error('AI soạn đề chưa đúng định dạng, thử lại.');p1.mode=b.level>=5?'read':'repeat';p1.items=p1.items.slice(0,5);out.part2=out.part2.slice(0,4);out.theme=b.theme}
+    if(T==='structgen'){const ok=out&&Array.isArray(out.items)&&out.items.length&&out.items.every(x=>x&&x.vi);if(!ok)throw new Error('AI chưa ra đúng định dạng câu, thử lại.');out.items=out.items.slice(0,3).map(x=>({vi:String(x.vi).slice(0,200),hint:String(x.hint||'').slice(0,120)}))}
+    if(b.task==='scenario'&&(!Array.isArray(out.dialogue)||out.dialogue.length<2||out.dialogue.some(d=>!d||!d.zh)))throw new Error('AI tạo bài chưa đúng định dạng, thử lại.');
+    send(200,out);
+   }catch(e){send(Number.isInteger(e.code)?e.code:500,{error:e.message||'Lỗi máy chủ'})}});
+  return;}
+if(req.method==='GET'&&req.url==='/api/status'&&process.env.ENABLE_STATUS==='1'){(async()=>{if(limited(req)){res.writeHead(429);return res.end('slow down')}
+  const o={geminiKeys:KEYS.length,geminiCheck:await Promise.all(KEYS.map(async k=>{try{const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1',{headers:{'x-goog-api-key':k},signal:AbortSignal.timeout(10000)});return{key:'…'+k.slice(-4),length:k.length,status:r.status,ok:r.ok}}catch(e){return{key:'…'+k.slice(-4),error:e.message}}})),model:MODEL};
+  res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(o,null,1))})();return}
+ if(req.url==='/api/health'){res.end('ok');return}
+ if(req.url==='/api/models'&&process.env.ENABLE_MODELS==='1'){(async()=>{try{const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=100',{headers:{'x-goog-api-key':KEYS[ki]||''}});const j=await r.json();res.writeHead(200,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(r.ok?{current:MODEL,usable:(j.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')).map(m=>m.name.replace('models/',''))}:j,null,1))}catch(e){res.end(String(e))}})();return}
+ const p0=req.url.split('?')[0];if(p0!=='/'&&p0!=='/index.html'){res.writeHead(404);res.end('not found');return}
+ res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});res.end(fs.readFileSync(path.join(__dirname,'index.html')));
+}).listen(PORT,()=>console.log('http://localhost:'+PORT));
+,'i').test(mime)||audio.length<1000||audio.length>6.5e6||!/^[A-Za-z0-9+/]+={0,2}$/.test(audio)||!target)return send(400,{error:'Bản ghi âm hoặc câu mẫu không hợp lệ.'});
      b.target=target;imgs=[{inlineData:{mimeType:mime.split(';')[0],data:audio}}];
     }
     if(T==='picfb'){const m=String(b.imgMime||''),d=String(b.imgData||'');if(!/^image\/(jpeg|png|webp)$/.test(m)||d.length<100||d.length>1.5e6||!/^[A-Za-z0-9+/]+={0,2}$/.test(d))return send(400,{error:'Ảnh không hợp lệ hoặc quá lớn, hãy chọn ảnh khác.'});imgs=[{inlineData:{mimeType:m,data:d}}]}
