@@ -149,7 +149,7 @@ http.createServer((req,res)=>{
     let imgs=[];
     if(T==='speech'){
      const mime=String(b.audioMime||''),audio=String(b.audioData||''),target=String(b.target||'').trim().slice(0,160);
-     if(!new RegExp('^audio/(webm|mp4|ogg|wav|mpeg|aac)(;.*)?||audio.length<1000||audio.length>6.5e6||!/^[A-Za-z0-9+/]+={0,2}$/.test(audio)||!target)return send(400,{error:'Bản ghi âm hoặc câu mẫu không hợp lệ.'});
+     if(!new RegExp('^audio/(webm|mp4|ogg|wav|mpeg|aac)(;.*)?$','i').test(mime)||audio.length<1000||audio.length>6.5e6||!/^[A-Za-z0-9+/]+={0,2}$/.test(audio)||!target)return send(400,{error:'Bản ghi âm hoặc câu mẫu không hợp lệ.'});
      b.target=target;imgs=[{inlineData:{mimeType:mime.split(';')[0],data:audio}}];
     }
     if(T==='picfb'){const m=String(b.imgMime||''),d=String(b.imgData||'');if(!/^image\/(jpeg|png|webp)$/.test(m)||d.length<100||d.length>1.5e6||!/^[A-Za-z0-9+/]+={0,2}$/.test(d))return send(400,{error:'Ảnh không hợp lệ hoặc quá lớn, hãy chọn ảnh khác.'});imgs=[{inlineData:{mimeType:m,data:d}}]}
