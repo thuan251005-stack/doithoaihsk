@@ -325,15 +325,17 @@ async function micL(){
    pronunciationBusy=true;const result=$('#res');if(result)result.innerHTML='<div class="vic">Đang nghe và phân tích phát âm bằng Gemini…</div>';
    try{
     const buf=await blob.arrayBuffer();let binary='';const bytes=new Uint8Array(buf);for(let i=0;i<bytes.length;i+=0x8000)binary+=String.fromCharCode(...bytes.subarray(i,i+0x8000));
-    const audioData=btoa(binary),target=cur()?.zh||'';
-    const response=await fetch('/api/speech',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task:'speech',target,audioMime:blob.type||recorder.mimeType||'audio/webm',audioData})});
+    const audioData=btoa(binary),target=cur()?.zh||'',targetPinyin=cur()?.pinyin||'';
+    const response=await fetch('/api/speech',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task:'speech',target,targetPinyin,audioMime:blob.type||recorder.mimeType||'audio/webm',audioData})});
     const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||'Không phân tích được bản ghi âm.');
     if(!pl)return;
-    const pct=Math.max(0,Math.min(100,Math.round(data.score||0))),transcript=String(data.transcript||'');
-    pl.res[pl.i]={zh:target,vi:cur()?.vi||'',said:transcript,pct,miss:0,feedback:data.feedback||'',tones:data.tones,accuracy:data.accuracy};
+    const transcript=String(data.transcript||''),heard=data.heard===true,confidence=String(data.confidence||'low');
+    const pct=heard&&Number.isFinite(+data.score)?Math.max(0,Math.min(100,Math.round(+data.score))):null;
+    pl.res[pl.i]={zh:target,vi:cur()?.vi||'',said:transcript,pct,miss:0,feedback:data.feedback||'',tones:data.tones,accuracy:data.accuracy,confidence};
+    const metric=(v)=>Number.isFinite(+v)?Math.max(0,Math.min(100,Math.round(+v)))+'%':'Chưa đủ dữ liệu';
     const issues=Array.isArray(data.issues)?data.issues.slice(0,4):[];
-    if(result)result.innerHTML=`<div class="sc">${pct}% ${pct>=85?'🌟 Rất tốt':pct>=65?'👍 Khá':'🔁 Cần luyện thêm'}</div><div class="vic"><b>Gemini nghe được:</b> ${esc(transcript||'Chưa nhận diện được')}</div><div class="wcs"><span class="wc">Độ chính xác chữ: <b>${Math.round(data.accuracy||0)}%</b></span><span class="wc">Thanh điệu: <b>${Math.round(data.tones||0)}%</b></span><span class="wc">Độ trôi chảy: <b>${Math.round(data.fluency||0)}%</b></span></div><div class="vic">${esc(data.feedback||'')}</div>${issues.map(x=>`<div class="vic">• <b>${esc(x.part||'')}</b>: ${esc(x.problem||'')} — ${esc(x.tip||'')}</div>`).join('')}`;
-    footMe(pct>=65);$('#msgs').scrollTop=1e6;
+    if(result)result.innerHTML=`<div class="sc">${pct===null?'Chưa đủ dữ liệu để chấm':pct+'% · '+(pct>=85?'🌟 Rất tốt':pct>=65?'👍 Khá':'🔁 Cần luyện thêm')}</div><div class="vic"><b>Gemini nghe được:</b> ${esc(transcript||'Chưa nhận diện được')}</div><div class="wcs"><span class="wc">Độ chính xác chữ: <b>${metric(data.accuracy)}</b></span><span class="wc">Thanh điệu: <b>${metric(data.tones)}</b></span><span class="wc">Phụ âm đầu: <b>${metric(data.initials)}</b></span><span class="wc">Vận mẫu: <b>${metric(data.finals)}</b></span><span class="wc">Độ trôi chảy: <b>${metric(data.fluency)}</b></span></div><div class="vic">Độ tin cậy phân tích: ${confidence==='high'?'Cao':confidence==='medium'?'Trung bình':'Thấp'}</div><div class="vic">${esc(data.feedback||'')}</div>${issues.map(x=>`<div class="vic">• <b>${esc(x.syllable||'')}</b> (${esc(x.expected||'')}): ${esc(x.problem||'')} — ${esc(x.tip||'')}</div>`).join('')}`;
+    footMe(pct!==null&&pct>=65);$('#msgs').scrollTop=1e6;
    }catch(e){if(result)result.innerHTML=`<div class="vic">${esc(e.message||'Lỗi phân tích âm thanh')}</div>`;toast(e.message||'Không phân tích được âm thanh.')}
    finally{pronunciationBusy=false}
   };
