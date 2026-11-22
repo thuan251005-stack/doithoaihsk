@@ -45,8 +45,8 @@ Yêu cầu: rất ngắn gọn; "items" đúng 5 phần tử theo thứ tự t�
 pronfb:b=>`Bạn là giáo viên phát âm tiếng Trung. Hãy NGHE kỹ file ghi âm đính kèm của người học (${lv(b.level)}). `+(b.text?`Câu người học được yêu cầu đọc: "${b.text}". `:'Người học nói tự do, không có câu mẫu. ')+`
 Việc cần làm: (1) chép lại đúng những gì bạn NGHE được bằng chữ Hán giản thể và pinyin có dấu thanh. Tuyệt đối không tự sửa cho đúng và không thêm chữ bạn không nghe thấy; (2) `+(b.text?'so với câu mẫu để tìm chữ đọc sai, đọc thiếu, đọc thừa;':'tự đánh giá độ rõ ràng của phát âm;')+` (3) chấm thanh mẫu/vận mẫu, thanh điệu (thanh 1-4, thanh nhẹ, biến điệu của 不/一 và thanh 3 liên tiếp), độ trôi chảy.
 Chỉ nêu lỗi khi bạn nghe thấy rõ; không chắc thì không nêu. Nếu không có giọng nói, quá ồn hoặc không phải tiếng Trung thì "heard" để rỗng, score 0 và nói rõ trong "tip". Giải thích bằng tiếng Việt.
-Trả về JSON: {"heard":"chữ Hán nghe được","heardPinyin":"pinyin nghe được","score":số 0-100,"breakdown":{"tone":số 0-100,"sound":số 0-100,"fluency":số 0-100,"accuracy":số 0-100},"good":"điểm tốt, 1 câu","errors":[{"type":"Thanh điệu|Thanh mẫu|Vận mẫu|Thiếu chữ|Thừa chữ|Trôi chảy","word":"chữ hoặc âm bị lỗi","said":"pinyin bạn nghe được","better":"pinyin đúng","why":"mẹo sửa tiếng Việt dưới 25 chữ"}],"tip":"lời khuyên, 1-2 câu"}
-Yêu cầu: rất ngắn gọn; "errors" tối đa 6 lỗi quan trọng nhất; "accuracy" là độ khớp với câu mẫu (nếu nói tự do thì bằng độ rõ ràng).`,
+Trả về JSON: {"heard":"chữ Hán nghe được","heardPinyin":"pinyin nghe được","score":số 0-100,"breakdown":{"tone":số 0-100,"sound":số 0-100,"fluency":số 0-100,"accuracy":số 0-100},"good":"điểm tốt, 1 câu","errors":[{"type":"Thanh điệu|Thanh mẫu|Vận mẫu|Thiếu chữ|Thừa chữ|Trôi chảy","word":"chữ hoặc âm bị lỗi","said":"pinyin bạn nghe được","better":"pinyin đúng","why":"mẹo sửa tiếng Việt dưới 15 chữ"}],"tip":"lời khuyên, 1-2 câu"}
+Yêu cầu: trả lời ngay, rất ngắn gọn; "errors" tối đa 4 lỗi quan trọng nhất; "good" và "tip" mỗi cái 1 câu ngắn; "accuracy" là độ khớp với câu mẫu (nếu nói tự do thì bằng độ rõ ràng).`,
 testgen:b=>{const L=b.level,band=L<=2?'Phần 1 mode "repeat" (nghe rồi nhắc lại): đúng 4 câu, mỗi câu 4-8 chữ. Phần 2: đúng 3 câu hỏi rất đơn giản về chủ đề (trả lời 1 câu ngắn). Phần 3: đề nói về chủ đề, người học nói 2-3 câu.':L<=4?'Phần 1 mode "repeat" (nghe rồi nhắc lại): đúng 3 câu, mỗi câu 10-18 chữ. Phần 2: đúng 2 câu hỏi về trải nghiệm cá nhân (trả lời 1-2 câu). Phần 3: đề nói về chủ đề, người học nói 4-5 câu.':L<=6?'Phần 1 mode "read" (đọc to): đúng 1 đoạn văn 2-3 câu, khoảng 50-80 chữ, đọc trôi chảy. Phần 2: đúng 2 câu hỏi nêu ý kiến và lý do. Phần 3: đề nói về chủ đề, người học nói 6-8 câu có mở đầu, ý chính, kết.':'Phần 1 mode "read" (đọc to): đúng 1 đoạn văn khoảng 90-130 chữ, từ vựng trừu tượng, có thành ngữ hoặc câu dài. Phần 2: đúng 2 câu hỏi quan điểm mang tính trừu tượng, cần lập luận. Phần 3: đề nói trong khoảng 1 phút (8-10 câu), có lập luận và dẫn chứng.';
 return `Soạn một bài KIỂM TRA NÓI tiếng Trung cho người học (${lv(L)}) với chủ đề: "${b.theme}". Mọi nội dung phải nằm trong phạm vi bậc ${L}. ${band}
 Trả về JSON: {"topicZh":"tên chủ đề tiếng Trung ngắn","topicVi":"nghĩa tiếng Việt","part1":{"mode":"repeat hoặc read","items":[{"zh":"","pinyin":"","vi":""}]},"part2":[{"zh":"câu hỏi","pinyin":"","vi":""}],"part3":{"zh":"đề bài nói bằng tiếng Trung","vi":"dịch tiếng Việt","hints":["3 gợi ý ý nói, tiếng Trung rất ngắn"]}}
@@ -76,27 +76,40 @@ const CHAT_MODEL=process.env.GEMINI_CHAT_MODEL||'gemini-flash-lite-latest';
 const FB=process.env.GEMINI_FEEDBACK_MODEL||CHAT_MODEL;
 const FBM=[FB,...MODELS.filter(m=>m!==FB)];
 const CHATM=[CHAT_MODEL,...MODELS.filter(m=>m!==CHAT_MODEL)];
-const AUD=process.env.GEMINI_AUDIO_MODEL||MODEL,AM=[AUD,...MODELS.filter(m=>m!==AUD)];   // model chấm phát âm: mặc định dùng model mạnh
+const AUD=process.env.GEMINI_AUDIO_MODEL||MODEL,AM=[AUD,...(process.env.GEMINI_AUDIO_FALLBACK||'').split(',').map(x=>x.trim()).filter(x=>x&&x!==AUD)];   // model chấm phát âm: mặc định dùng model mạnh
 const AUDIO_OK=/^audio\/(wav|x-wav|wave|mp3|mpeg|aac|ogg|flac|aiff|x-aiff|webm|mp4|x-m4a|m4a)$/;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-async function gem(prompt,models=MODELS,maxTok=0,extra=[]){
- let last='',t0=Date.now(),think=true,quota=false;ki=(ki+1)%Math.max(KEYS.length,1);
- for(const model of models){think=true;let rot=0;
+// Mức suy nghĩ: Gemini 3.x dùng thinkingLevel, 2.5 dùng thinkingBudget. Thử lần lượt và nhớ phương án chạy được cho từng model.
+const TL=(process.env.GEMINI_THINKING_LEVEL||'low').trim().toLowerCase(),TV=[{thinkingLevel:TL},{thinkingBudget:0},null],TSTART=['default','none'].includes(TL)?2:0,THINK=new Map(),THINK_ERR=/think|budget|level/i;
+// Khóa nào bị 429/401 thì nghỉ một lúc, request sau ưu tiên khóa còn khỏe (thay cho biến toàn cục ki)
+const KCOOL=new Map();
+const pickKey=()=>{const n=Date.now(),ready=KEYS.filter(k=>(KCOOL.get(k)||0)<=n),pool=ready.length?ready:[...KEYS].sort((x,y)=>(KCOOL.get(x)||0)-(KCOOL.get(y)||0)).slice(0,1);return pool[Math.floor(Math.random()*pool.length)]||''};
+// Schema chấm phát âm: ép Gemini trả JSON đúng khuôn, ít lỗi parse hơn và gọn hơn
+const PI={type:'INTEGER'},PS={type:'STRING'};
+const PRON_SCHEMA={type:'OBJECT',properties:{heard:PS,heardPinyin:PS,score:PI,breakdown:{type:'OBJECT',properties:{tone:PI,sound:PI,fluency:PI,accuracy:PI},required:['tone','sound','fluency','accuracy']},good:PS,errors:{type:'ARRAY',maxItems:4,items:{type:'OBJECT',properties:{type:{type:'STRING',enum:['Thanh điệu','Thanh mẫu','Vận mẫu','Thiếu chữ','Thừa chữ','Trôi chảy']},word:PS,said:PS,better:PS,why:PS},required:['type','word','said','better','why']}},tip:PS},required:['heard','heardPinyin','score','breakdown','good','errors','tip']};
+async function gem(prompt,models=MODELS,maxTok=0,extra=[],opt={}){
+ let last='',t0=Date.now(),quota=false;const TOTAL=opt.total||55000;
+ for(const model of models){let swaps=0;
   for(let t=0;t<3;t++){
-   if(Date.now()-t0>55000)throw new Error('Gemini phản hồi quá lâu, thử lại sau ít phút. '+last.slice(0,120));
-   const cfg={responseMimeType:'application/json',temperature:0.8};if(maxTok)cfg.maxOutputTokens=maxTok;if(think)cfg.thinkingConfig={thinkingBudget:0};
-   let r;try{r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',signal:AbortSignal.timeout(25000),headers:{'Content-Type':'application/json','x-goog-api-key':KEYS[ki]},body:JSON.stringify({contents:[{parts:[...extra,{text:prompt}]}],generationConfig:cfg})})}
-   catch(e){last=`Model ${model} không phản hồi kịp (25 giây).`;break}
-   if(r.ok){const j=await r.json();const x=(j.candidates?.[0]?.content?.parts||[]).filter(p=>!p.thought).map(p=>p.text||'').join('');
-    try{return JSON.parse(x.replace(/```json|```/g,'').trim())}catch{last='AI trả về dữ liệu lỗi, thử lại.';continue}}
+   const left=TOTAL-(Date.now()-t0);
+   if(left<3000)throw new Error('Gemini phản hồi quá lâu, thử lại sau ít phút. '+last.slice(0,120));
+   const key=pickKey(),vi=THINK.get(model)??TSTART;
+   const cfg={responseMimeType:'application/json',temperature:opt.temp??0.8};if(opt.schema)cfg.responseSchema=opt.schema;if(maxTok)cfg.maxOutputTokens=maxTok;if(TV[vi])cfg.thinkingConfig=TV[vi];
+   let r;try{r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',signal:AbortSignal.timeout(Math.min(opt.timeout||25000,left)),headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({contents:[{parts:[...extra,{text:prompt}]}],generationConfig:cfg})})}
+   catch(e){last=`Model ${model} không phản hồi kịp.`;break}
+   if(r.ok){const j=await r.json();const c=j.candidates?.[0],x=(c?.content?.parts||[]).filter(p=>!p.thought).map(p=>p.text||'').join('');
+    try{return JSON.parse(x.replace(/```json|```/g,'').trim())}catch{last='AI trả về dữ liệu lỗi'+(c?.finishReason==='MAX_TOKENS'?' (bị cắt do hết token)':'')+', thử lại.';continue}}
    let m='';try{m=(await r.json()).error?.message||''}catch{}
    last=`Gemini lỗi ${r.status} (model: ${model}): ${m}`.slice(0,300);
-   if(KEYS.length>1&&(r.status===429||r.status===401||r.status===403||(r.status===400&&/API key/i.test(m)))&&rot<KEYS.length-1){rot++;ki=(ki+1)%KEYS.length;t--;continue}
-   if(r.status===400&&think){think=false;t--;continue}   // model không nhận tùy chọn tắt suy nghĩ → thử lại không có
+   const badKey=r.status===401||r.status===403||(r.status===400&&/API key/i.test(m));
+   if(r.status===429||badKey){KCOOL.set(key,Date.now()+(badKey?900e3:/per ?day|daily/i.test(m)?3600e3:90e3));
+    if(KEYS.length>1&&swaps<KEYS.length-1){swaps++;t--;continue}
+    if(badKey)throw new Error('Khóa Gemini không hợp lệ hoặc bị từ chối. Kiểm tra GEMINI_API_KEYS trên Render ('+KEYS.length+' khóa đang nhận).');
+    if(t<1){await sleep(2500);continue}quota=true;break}
+   if(r.status===400&&TV[vi]&&THINK_ERR.test(m)){THINK.set(model,vi+1);t--;continue}   // model không nhận kiểu suy nghĩ này → đổi phương án, nhớ cho lần sau
    if(r.status===404)break;
-   if(r.status===429){if(t<1){await sleep(2500);continue}quota=true;break}
    if(r.status>=500){await sleep(1000*(t+1));continue}
-   throw new Error(r.status===401||/API key not valid/i.test(m)?'Khóa Gemini không hợp lệ. Kiểm tra GEMINI_API_KEYS trên Render ('+KEYS.length+' khóa đang nhận).':last);
+   throw new Error(last);
   }
  }
  if(quota)throw Object.assign(new Error('Hết lượt miễn phí tạm thời, thử lại sau ít phút.'),{code:429});
@@ -106,13 +119,13 @@ async function gemStream(prompt,res){
  let last='',quota=false;ki=(ki+1)%Math.max(KEYS.length,1);
  for(const model of CHATM){let think=true,rot=0;
   for(let t=0;t<2;t++){
-   const ac=new AbortController(),tm=setTimeout(()=>ac.abort(),30000);res.on('close',()=>ac.abort());const cfg={temperature:0.8,maxOutputTokens:300};if(think)cfg.thinkingConfig={thinkingBudget:0};
+   const ac=new AbortController(),tm=setTimeout(()=>ac.abort(),30000);res.on('close',()=>ac.abort());const vi=THINK.get(model)??TSTART,cfg={temperature:0.8,maxOutputTokens:300};if(TV[vi])cfg.thinkingConfig=TV[vi];
    let r;try{r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`,{method:'POST',signal:ac.signal,headers:{'Content-Type':'application/json','x-goog-api-key':KEYS[ki]},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:cfg})})}
    catch{if(res.destroyed)return;last=`Model ${model} không phản hồi kịp.`;break}
    if(!r.ok){let m='';try{m=(await r.json()).error?.message||''}catch{}
     last=`Gemini lỗi ${r.status} (model: ${model}): ${m}`.slice(0,300);
     if(KEYS.length>1&&(r.status===429||r.status===401||r.status===403||(r.status===400&&/API key/i.test(m)))&&rot<KEYS.length-1){rot++;ki=(ki+1)%KEYS.length;t--;continue}
-    if(r.status===400&&think){think=false;t--;continue}
+    if(r.status===400&&TV[vi]&&THINK_ERR.test(m)){THINK.set(model,vi+1);t--;continue}
     if(r.status===429){quota=true;break}
     if(r.status===404||r.status>=500)break;
     throw new Error(r.status===401||/API key not valid/i.test(m)?'Khóa Gemini không hợp lệ. Kiểm tra GEMINI_API_KEYS trên Render ('+KEYS.length+' khóa đang nhận).':last)}
@@ -153,7 +166,7 @@ http.createServer((req,res)=>{
     let imgs=[];
     if(T==='picfb'){const m=String(b.imgMime||''),d=String(b.imgData||'');if(!/^image\/(jpeg|png|webp)$/.test(m)||d.length<100||d.length>1.5e6||!/^[A-Za-z0-9+/]+={0,2}$/.test(d))return send(400,{error:'Ảnh không hợp lệ hoặc quá lớn, hãy chọn ảnh khác.'});imgs=[{inlineData:{mimeType:m,data:d}}]}
     if(T==='pronfb'){const m=String(b.audMime||'').split(';')[0].trim().toLowerCase(),d=String(b.audData||'');if(!AUDIO_OK.test(m)||d.length<200||d.length>2.8e6||!/^[A-Za-z0-9+/]+={0,2}$/.test(d))return send(400,{error:'Bản ghi âm không hợp lệ hoặc quá dài (tối đa khoảng 60 giây), hãy ghi lại.'});imgs=[{inlineData:{mimeType:m,data:d}}]}
-    const out=await gem(P[T](b),T==='pronfb'?AM:T==='notes'||T==='words'?CHATM:T==='feedback'||T==='picfb'||T==='wordscheck'||T==='testcheck'||T==='structcheck'?FBM:MODELS,{feedback:1200,picfb:2000,pronfb:2000,wordscheck:1200,words:400,testgen:1800,testcheck:2600,structgen:800,structcheck:2000}[T]||0,imgs);
+    const out=await gem(P[T](b),T==='pronfb'?AM:T==='notes'||T==='words'?CHATM:T==='feedback'||T==='picfb'||T==='wordscheck'||T==='testcheck'||T==='structcheck'?FBM:MODELS,{feedback:1200,picfb:2000,pronfb:3000,wordscheck:1200,words:400,testgen:1800,testcheck:2600,structgen:800,structcheck:2000}[T]||0,imgs,T==='pronfb'?{schema:PRON_SCHEMA,temp:0.2,timeout:40000,total:60000}:{});
     if(T==='pronfb'&&(typeof out.heard!=='string'||typeof out.score!=='number'))throw new Error('AI chấm phát âm chưa đúng định dạng, thử lại.');
     if(T==='words'){if(!Array.isArray(out.words)||out.words.length<5||out.words.some(w=>!w||!w.zh))throw new Error('AI chọn từ chưa đúng định dạng, thử lại.');out.words=out.words.slice(0,5)}
     if(T==='testgen'){const p1=out&&out.part1,ok=p1&&Array.isArray(p1.items)&&p1.items.length&&p1.items.every(x=>x&&x.zh)&&Array.isArray(out.part2)&&out.part2.length&&out.part2.every(x=>x&&x.zh)&&out.part3&&out.part3.zh;if(!ok)throw new Error('AI soạn đề chưa đúng định dạng, thử lại.');p1.mode=b.level>=5?'read':'repeat';p1.items=p1.items.slice(0,5);out.part2=out.part2.slice(0,4);out.theme=b.theme}
