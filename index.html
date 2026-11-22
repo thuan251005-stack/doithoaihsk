@@ -48,8 +48,8 @@ textarea{height:110px;resize:none}.cnt{text-align:right;color:var(--mu);font-siz
 .act{display:flex;gap:14px;margin:4px 6px;color:var(--mu);font-size:14px}
 .sc{font-weight:800;margin-top:6px}.cmp .ok{color:#0a9b66}.cmp .bad{color:#e0453a;text-decoration:underline}
 #foot{border-top:1px solid var(--ln);padding:10px 12px calc(10px + env(safe-area-inset-bottom))}
-.fr{display:flex;align-items:center;justify-content:center;gap:12px}
-.pill{background:#eef1f6;border-radius:22px;padding:11px 16px;font-weight:600}.pill.g{background:var(--g);color:#fff}
+.fr{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap}
+.pill{background:#eef1f6;border-radius:22px;padding:11px 16px;font-weight:600}.pill.g{background:var(--g);color:#fff}.pill.rc{background:#e0453a;color:#fff;animation:p 1s infinite}.pill:disabled{opacity:.6}
 .mic{flex:0 0 auto;width:68px;height:68px;border-radius:50%;background:linear-gradient(135deg,var(--g),var(--g2));color:#fff;font-size:28px;box-shadow:0 6px 18px #13bd7855}.mic.rec{background:#e0453a;animation:p 1s infinite}
 @keyframes p{50%{transform:scale(1.08)}}
 .sug{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;scrollbar-width:none}.sug button{flex:0 0 auto;background:#e6f7f4;color:#0a8f86;border-radius:18px;padding:8px 14px;font-size:16px}
@@ -230,22 +230,48 @@ function openSet(){const vs=voices();
  $('#mbody').querySelector('.lvs').onclick=e=>{const r=+e.target.dataset.r;if(r){st.voice.rate=r;LS.set('voice',st.voice);openSet()}};
  $('#vt').onclick=()=>say('你好！很高兴认识你。')}
 if('speechSynthesis' in window)speechSynthesis.onvoiceschanged=()=>{};
-const SILENCE_MS=5000,FIRST_MS=8000,audioById=new Map();
+const SILENCE_MS=5000,FIRST_MS=8000;
 function listen(onres,onend){const R=window.SpeechRecognition||window.webkitSpeechRecognition;if(!R){toast('Trình duyệt không hỗ trợ nhận diện giọng nói. Hãy gõ chữ.');return null}
- const r=new R();r.lang='zh-CN';r.interimResults=true;r.continuous=true;let fin='',tm,stream=null,mr=null,chunks=[];
- // Ghi âm âm thanh gốc song song với nhận diện văn bản; âm thanh sẽ được gửi lên backend khi chấm.
- let mediaReady=Promise.resolve();if(navigator.mediaDevices?.getUserMedia&&window.MediaRecorder){mediaReady=navigator.mediaDevices.getUserMedia({audio:true}).then(st=>{stream=st;let mime='';for(const x of ['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg'])if(MediaRecorder.isTypeSupported?.(x)){mime=x;break}mr=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);mr.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data)};mr.start(250)}).catch(()=>{});}
- const finish=async()=>{await mediaReady;const done=()=>{stream?.getTracks().forEach(t=>t.stop());const blob=chunks.length?new Blob(chunks,{type:mr?.mimeType||'audio/webm'}):null;onend(fin,blob)};if(mr&&mr.state!=='inactive'){mr.onstop=done;try{mr.stop()}catch{done()}}else{stream?.getTracks().forEach(t=>t.stop());onend(fin,null)}};
+ const r=new R();r.lang='zh-CN';r.interimResults=true;r.continuous=true;let fin='',tm;
  const bump=ms=>{clearTimeout(tm);tm=setTimeout(()=>{try{r.stop()}catch{}},ms)};
  r.onstart=()=>bump(FIRST_MS);
  r.onresult=e=>{let t='';for(const x of e.results)t+=x[0].transcript;fin=t;onres(t);bump(SILENCE_MS)};
  r.onerror=e=>toast(e.error==='not-allowed'?'Hãy cho phép dùng micro cho trang này':e.error==='no-speech'?'Chưa nghe thấy giọng, thử lại nhé':'Không nghe rõ, thử lại nhé');
- r.onend=()=>{clearTimeout(tm);rec=null;finish()};try{r.start()}catch{stream?.getTracks().forEach(t=>t.stop());return null}return r}
+ r.onend=()=>{clearTimeout(tm);rec=null;onend(fin)};try{r.start()}catch{return null}return r}
 function micToggle(cb,live,sel='#mic'){if(rec){rec.stop();return}try{speechSynthesis.cancel()}catch{}
- const m=$(sel);m?.classList.add('rec');rec=listen(live,(t,audio)=>{m?.classList.remove('rec');if(t)cb(t,audio)});if(!rec)m?.classList.remove('rec')}
-async function blobPayload(blob){if(!blob)return null;const data=await new Promise((ok,no)=>{const fr=new FileReader();fr.onload=()=>ok(String(fr.result).split(',')[1]||'');fr.onerror=no;fr.readAsDataURL(blob)});return{mime:blob.type||'audio/webm',data}}
-async function geminiAudioScore(clips){const r=await fetch('/api/pronunciation',{method:'POST',signal:tmo(120000),headers:{'Content-Type':'application/json'},body:JSON.stringify({clips})});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Không chấm được âm thanh');return j}
-
+ const m=$(sel);m?.classList.add('rec');rec=listen(live,t=>{m?.classList.remove('rec');if(t)cb(t)});if(!rec)m?.classList.remove('rec')}
+/* ---------- AI chấm phát âm: ghi âm thật -> WAV 16kHz -> /api/audio (Gemini nghe trực tiếp) ---------- */
+let prec=null,pUrl='';
+function pronBtn(m){const b=$('#pmic');if(!b)return;b.disabled=m==='busy';b.classList.toggle('rc',m==='rec');b.textContent=m==='rec'?'⏹ Dừng & chấm':m==='busy'?'⏳ Đang chấm…':'🎧 AI chấm'}
+function pronAbort(){const p=prec;prec=null;if(p){p.cancel=true;clearTimeout(p.tm);try{p.r.state!=='inactive'&&p.r.stop()}catch{}try{p.s.getTracks().forEach(t=>t.stop())}catch{}}pronBtn('idle')}
+async function toWav16k(blob){const ctx=new(window.AudioContext||window.webkitAudioContext)();let dec;try{dec=await ctx.decodeAudioData(await blob.arrayBuffer())}finally{ctx.close()}
+ const rate=16000,off=new OfflineAudioContext(1,Math.max(1,Math.ceil(dec.duration*rate)),rate),src=off.createBufferSource();src.buffer=dec;src.connect(off.destination);src.start();
+ const pcm=(await off.startRendering()).getChannelData(0),o=new DataView(new ArrayBuffer(44+pcm.length*2)),w=(a,t)=>[...t].forEach((c,i)=>o.setUint8(a+i,c.charCodeAt(0)));
+ w(0,'RIFF');o.setUint32(4,36+pcm.length*2,true);w(8,'WAVE');w(12,'fmt ');o.setUint32(16,16,true);o.setUint16(20,1,true);o.setUint16(22,1,true);o.setUint32(24,rate,true);o.setUint32(28,rate*2,true);o.setUint16(32,2,true);o.setUint16(34,16,true);w(36,'data');o.setUint32(40,pcm.length*2,true);
+ for(let i=0;i<pcm.length;i++){const x=Math.max(-1,Math.min(1,pcm[i]));o.setInt16(44+i*2,x<0?x*0x8000:x*0x7fff,true)}return o.buffer}
+function b64(ab){let s='';const u=new Uint8Array(ab);for(let i=0;i<u.length;i+=0x8000)s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(s)}
+function pronHtml(r,url){const sc=Math.round(+r.score||0);return `<div class="gm"><b>🎧 AI chấm phát âm: ${sc}/100 ${sc>=80?'🌟':sc>=60?'👍':'🔁'}</b>${brkHtml(r.breakdown)}${r.heard?`<div class="vic">AI nghe được:</div><div class="zhc">${esc(r.heard)}</div><div class="vic">${esc(r.heardPinyin||'')}</div>`:''}${r.good?`<div>👍 ${esc(r.good)}</div>`:''}${(r.errors||[]).map(f=>`<div class="er">${tag(f.type||'Lỗi')}<b class="zhc">${esc(f.word)}</b><div class="vic">Bạn đọc: ${esc(f.said)}</div><div class="zhc">✔ ${esc(f.better)}</div><div class="vic">${esc(f.why)}</div></div>`).join('')}${r.tip?`<div>💡 ${esc(r.tip)}</div>`:''}<audio controls src="${url}" style="width:100%;margin-top:8px"></audio></div>`}
+async function pronL(){
+ if(prec){prec.r.stop();return}   // đang ghi -> dừng, onstop sẽ chấm
+ if(!navigator.mediaDevices||!window.MediaRecorder)return toast('Trình duyệt không hỗ trợ ghi âm.');
+ if(rec)rec.stop();try{speechSynthesis.cancel()}catch{}
+ const my=sid,idx=pl.i,m=cur();let s;
+ try{s=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}})}catch{return toast('Hãy cho phép dùng micro cho trang này')}
+ if(!pl||sid!==my||pl.i!==idx){s.getTracks().forEach(t=>t.stop());return}
+ const ch=[],r=new MediaRecorder(s),p={r,s,cancel:false};prec=p;
+ r.ondataavailable=e=>e.data.size&&ch.push(e.data);
+ r.onstop=async()=>{s.getTracks().forEach(t=>t.stop());clearTimeout(p.tm);if(prec===p)prec=null;if(p.cancel)return;pronBtn('busy');
+  try{const wav=await toWav16k(new Blob(ch,{type:r.mimeType||'audio/webm'}));
+   if(wav.byteLength<16000)throw new Error('Ghi âm quá ngắn, hãy đọc lại nhé.');
+   const j=await ai('pronfb',{level:(pl&&pl.it&&pl.it.lv)||xlv,text:m.zh,audMime:'audio/wav',audData:b64(wav)},'/api/audio');
+   if(!pl||sid!==my||pl.i!==idx)return;
+   if(pUrl)URL.revokeObjectURL(pUrl);pUrl=URL.createObjectURL(new Blob([wav],{type:'audio/wav'}));
+   (pl.pr=pl.pr||{})[idx]=j;
+   const el=$('#pres');if(el)el.innerHTML=pronHtml(j,pUrl);$('#msgs').scrollTop=1e6}
+  catch(e){toast(e.message||'Không chấm được, thử lại nhé')}
+  pronBtn('idle')};
+ r.start();p.tm=setTimeout(()=>{try{r.state==='recording'&&r.stop()}catch{}},55000);   // tối đa 55 giây
+ pronBtn('rec')}
 /* ---------- scoring ---------- */
 const norm=s=>s.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g,'');
 function score(target,said){const a=[...norm(target)],b=[...norm(said)],m=a.length,n=b.length;const d=Array.from({length:m+1},()=>Array(n+1).fill(0));
@@ -275,13 +301,13 @@ const foot=h=>$('#foot').innerHTML=h;
 function bubble(m,last){const me=m.role==='me',lvi=pl.mode==='learn'&&pl.lang==='vi';
  return `<div class="row ${m.role} ${lvi?(me?'sv hz':'hz'):''}"><div class="b"><div class="zh">${hl(m)}</div><div class="py">${esc(m.pinyin||'')}</div><div class="vi">${esc(m.vi||'')}</div></div>
  ${m.role==='npc'||pl.mode==='learn'?`<div class="act"><button data-a="say">🔊 Nghe lại</button>${lvi?'<button data-a="hz">中 Chữ Hán</button>':''}${me&&lvi?'':'<button data-a="sv">译 Dịch</button>'}<button data-a="sp">拼 Phiên âm</button><button data-a="ask">❓ Hỏi</button></div>`:''}
- ${last&&me&&pl.mode==='learn'?'<div id="res"></div>':''}</div>`}
+ ${last&&me&&pl.mode==='learn'?'<div id="res"></div><div id="pres"></div>':''}</div>`}
 function render(list){const el=$('#msgs');el.innerHTML=list.map((m,i)=>bubble(m,i===list.length-1)).join('');el._l=list;el.scrollTop=el.scrollHeight}
 $('#msgs').addEventListener('click',e=>{const b=e.target.closest('[data-a]');if(!b)return;const row=b.closest('.row'),i=[...$('#msgs').children].indexOf(row),m=$('#msgs')._l[i];
  if(b.dataset.a==='say')say(m.zh);else if(b.dataset.a==='ask')openAsk(m.zh);else row.classList.toggle(b.dataset.a)});
 function openPlay(sc0,mode,it){let sc=sc0;if(mode==='learn'&&st.swap)sc={...sc0,dialogue:sc0.dialogue.map(m=>({...m,role:m.role==='me'?'npc':'me'}))};sid++;askLog=[];askLine='';pl={sc,mode,lang:st.lang,i:0,hist:[],sug:[],res:{},it};$('#ntb').hidden=!(it&&ntFind(it).length);$('#rate').textContent=st.voice.rate+'x';$('#ptitle').textContent=sc.title;$('#psub').textContent=sc.partner;$('#play').classList.add('show');
  if(mode==='learn')stepL();else{render([]);turn()}}
-function closePlay(){sid++;busy=false;try{chatCtl&&chatCtl.abort()}catch{}closeAsk();try{speechSynthesis.cancel()}catch{}if(rec)rec.stop();$('#nt').classList.remove('show');pl=null;$('#play').classList.remove('show')}
+function closePlay(){pronAbort();sid++;busy=false;try{chatCtl&&chatCtl.abort()}catch{}closeAsk();try{speechSynthesis.cancel()}catch{}if(rec)rec.stop();$('#nt').classList.remove('show');pl=null;$('#play').classList.remove('show')}
 function endPlay(){if(!pl)return;
  if(pl.mode==='chat'){if(pl.hist.some(h=>h.role==='me'))return feedback();toast('Hãy nói ít nhất một câu để được nhận xét');return}
  if(pl.mode==='learn'&&pl.end==null){const d=pl.sc.dialogue;if(!Object.keys(pl.res).length){toast('Bạn chưa nói câu nào để chấm. Bấm ‹ nếu muốn thoát');return}
@@ -289,15 +315,15 @@ function endPlay(){if(!pl)return;
  closePlay()}
 /* learning mode */
 const cur=()=>pl.sc.dialogue[pl.i];
-function stepL(){const d=pl.sc.dialogue;try{speechSynthesis.cancel()}catch{}
+function stepL(){const d=pl.sc.dialogue;pronAbort();try{speechSynthesis.cancel()}catch{}
  if(pl.i>=d.length){render(pl.end==null?d:d.slice(0,pl.end));const rs=Object.values(pl.res),a=rs.length?Math.round(rs.reduce((x,y)=>x+y.pct,0)/rs.length):0;
   $('#msgs').insertAdjacentHTML('beforeend',sumL(d));$('#msgs').scrollTop=1e6;
   return foot(`<div class="done">${pl.end==null?'🎉 Hoàn thành!':'📋 Kết quả phần đã luyện:'} Điểm trung bình: ${a}%</div><div class="fr"><button class="pill" onclick="pl.i=0;pl.end=null;pl.res={};stepL()">🔁 Làm lại</button><button class="pill g" onclick="closePlay()">Xong</button></div>`)}
  const m=d[pl.i];render(d.slice(0,pl.i+1));
  if(m.role==='npc'){say(m.zh,()=>{if(pl&&d[pl.i]===m)setTimeout(()=>{if(pl&&d[pl.i]===m){pl.i++;stepL()}},500)});foot(`<div class="fr"><button class="pill" onclick="say(cur().zh)">🔊</button><button class="pill g" onclick="pl.i++;stepL()">Tiếp ›</button></div>`)}
  else{footMe()}}
-function footMe(next){foot(`<div class="fr"><button class="pill" onclick="say(cur().zh)">🔊 Nghe mẫu</button><button id="mic" class="mic" onclick="micL()">🎤</button>${next?'<button class="pill g" onclick="pl.i++;stepL()">Tiếp ›</button>':'<button class="pill" onclick="pl.i++;stepL()">Bỏ qua ›</button>'}</div>`)}
-function micL(){micToggle(async(t,audio)=>{if(!pl)return;const m=cur(),s=score(m.zh,t);let pct=s.pct,extra='';if(audio){try{const a=await blobPayload(audio),j=await geminiAudioScore([{key:'lesson',target:m.zh,mime:a.mime,data:a.data}]),v=j.clips?.[0];if(v){pct=Math.round(s.pct*.3+(+v.score||0)*.7);extra=`<div class="vic">🎧 Gemini nghe trực tiếp: ${esc(v.score)}/100 · Phát âm ${esc(v.pronunciation)} · Thanh điệu ${esc(v.tones)} · Lưu loát ${esc(v.fluency)}</div><div class="vic">${esc(v.feedback||'')}</div>`}}catch(e){extra=`<div class="vic">Không chấm được âm thanh: ${esc(e.message)}</div>`}}pl.res[pl.i]={zh:m.zh,vi:m.vi,said:t,pct,html:s.html,miss:s.miss};$('#res').innerHTML=`<div class="sc">${pct}% ${pct>=80?'🌟 Rất tốt':pct>=60?'👍 Khá':'🔁 Thử lại nhé'}</div><div class="cmp zh">${s.html}</div>${extra}`;footMe(pct>=60);$('#msgs').scrollTop=1e6},t=>{const r=$('#res');if(r)r.innerHTML=`<div class="vic">${esc(t)}</div>`})}
+function footMe(next){foot(`<div class="fr"><button class="pill" onclick="say(cur().zh)">🔊 Nghe mẫu</button><button id="mic" class="mic" onclick="micL()">🎤</button><button id="pmic" class="pill" onclick="pronL()">🎧 AI chấm</button>${next?'<button class="pill g" onclick="pl.i++;stepL()">Tiếp ›</button>':'<button class="pill" onclick="pl.i++;stepL()">Bỏ qua ›</button>'}</div>`)}
+function micL(){pronAbort();micToggle(t=>{if(!pl)return;const m=cur(),s=score(m.zh,t);pl.res[pl.i]={zh:m.zh,vi:m.vi,said:t,pct:s.pct,html:s.html,miss:s.miss};$('#res').innerHTML=`<div class="sc">${s.pct}% ${s.pct>=80?'🌟 Rất tốt':s.pct>=60?'👍 Khá':'🔁 Thử lại nhé'}</div><div class="cmp zh">${s.html}</div>`;footMe(s.pct>=60);$('#msgs').scrollTop=1e6},t=>{const r=$('#res');if(r)r.innerHTML=`<div class="vic">${esc(t)}</div>`})}
 function sumL(d){const lim=pl.end==null?d.length:pl.end,me=d.map((m,i)=>[m,i]).filter(x=>x[0].role==='me'&&x[1]<lim);if(!me.length)return'';
  const said=me.filter(x=>pl.res[x[1]]).length,bad=me.filter(x=>!pl.res[x[1]]||pl.res[x[1]].pct<80);
  return `<div class="gm"><b>📋 Tổng kết lỗi</b><div class="vic">Đã nói ${said}/${me.length} câu · cần luyện lại ${bad.length} câu</div></div>`+(bad.length?bad.map(([m,i])=>{const r=pl.res[i];return `<div class="gm">${r?`<div class="sc">${r.pct}% · sai hoặc thiếu ${r.miss} chữ</div><div class="cmp zh">${r.html}</div><div class="vic">Bạn nói: ${esc(r.said)}</div>`:`<div class="vic">Chưa luyện câu này</div><div class="zh">${esc(m.zh)}</div>`}<div class="vic">${esc(m.pinyin||'')}</div><div class="vic">${esc(m.vi||'')}</div><button class="pill" style="margin-top:6px" data-t="${esc(m.zh)}" onclick="say(this.dataset.t)">🔊 Nghe lại</button></div>`}).join(''):'<div class="gm">🌟 Tất cả các câu đều đạt từ 80% trở lên!</div>')}
@@ -336,14 +362,14 @@ async function feedback(){modal('<h3>Nhận xét buổi hội thoại</h3><p cla
 /* ---------- nhìn tranh nói + đặt câu 5 từ ---------- */
 let xlv=LS.get('xlv',2);
 function lvChips(id){const el=$('#'+id),paint=()=>el.innerHTML=[1,2,3,4,5,6,7,8,9].map(n=>`<button class="chip ${xlv===n?'on':''}" data-l="${n}">${n}</button>`).join('');paint();el.onclick=e=>{const n=+e.target.dataset.l;if(n){xlv=n;LS.set('xlv',n);paint()}}}
-const TYPES={'Ngữ pháp':'#e0453a','Từ vựng':'#d9822b','Sai chữ':'#8a5ad6','Nội dung':'#2a7bd6'};
+const TYPES={'Ngữ pháp':'#e0453a','Từ vựng':'#d9822b','Sai chữ':'#8a5ad6','Nội dung':'#2a7bd6','Thanh điệu':'#e0453a','Thanh mẫu':'#d9822b','Vận mẫu':'#8a5ad6','Thiếu chữ':'#2a7bd6','Thừa chữ':'#2a7bd6','Trôi chảy':'#6f7f89'};
 const tag=t=>t?`<span class="tg" style="background:${TYPES[t]||'#6f7f89'}">${esc(t)}</span>`:'';
 const cnt=l=>{const m={};(l||[]).forEach(f=>{const t=f.type||'Lỗi';m[t]=(m[t]||0)+1});return Object.entries(m).map(([t,n])=>`${tag(t)}×${n}`).join(' ')};
 const errHtml=l=>(l||[]).map(f=>`<div class="er">${tag(f.type||'Lỗi')}<div class="vic">Bạn nói: ${esc(f.said)}</div><div class="zhc">✔ ${esc(f.better)}</div><div class="vic">${esc(f.why)}</div></div>`).join('');
 const errBlock=l=>(l&&l.length)?`<label>Tổng kết lỗi (${l.length})</label><div>${cnt(l)}</div>${errHtml(l)}`:'<p>✅ Không có lỗi đáng kể.</p>';
-const brkHtml=b=>b?`<div class="brk">${[['grammar','Ngữ pháp'],['vocab','Từ vựng'],['content','Nội dung']].filter(x=>b[x[0]]!=null).map(([k,n])=>{const v=Math.max(0,Math.min(100,Math.round(+b[k]||0)));return `<div><small>${n}</small><div class="bar"><i style="width:${v}%"></i></div><b>${v}</b></div>`}).join('')}</div>`:'';
+const brkHtml=b=>b?`<div class="brk">${[['grammar','Ngữ pháp'],['vocab','Từ vựng'],['content','Nội dung'],['tone','Thanh điệu'],['sound','Âm đọc'],['fluency','Trôi chảy'],['accuracy','Khớp câu mẫu']].filter(x=>b[x[0]]!=null).map(([k,n])=>{const v=Math.max(0,Math.min(100,Math.round(+b[k]||0)));return `<div><small>${n}</small><div class="bar"><i style="width:${v}%"></i></div><b>${v}</b></div>`}).join('')}</div>`:'';
 const modelHtml=m=>m&&m.zh?`<label>Bài mẫu</label><div class="gm"><div class="zhc">${esc(m.zh)}</div><div class="vic">${esc(m.pinyin)}</div><div class="vic">${esc(m.vi)}</div><button class="pill" style="margin-top:6px" data-t="${esc(m.zh)}" onclick="say(this.dataset.t)">🔊 Nghe mẫu</button></div>`:'';
-function attachMic(btn,ta,after){btn.onclick=()=>{const base=ta.value?ta.value.trim()+' ':'',f=async(t,audio)=>{ta.value=base+t;if(ta.id)audioById.delete(ta.id);if(audio&&ta.id)audioById.set(ta.id,audio);after&&after()};if(ta.id)audioById.delete(ta.id);micToggle(f,f,'#'+btn.id)}}
+function attachMic(btn,ta,after){btn.onclick=()=>{const base=ta.value?ta.value.trim()+' ':'',f=t=>{ta.value=base+t;after&&after()};micToggle(f,f,'#'+btn.id)}}
 /* nhìn tranh nói: tải ảnh lên */
 let pic={img:null};
 function openPic(){
@@ -435,15 +461,12 @@ async function tsCheck(){const d=ts.data,rd=d.part1.mode==='read',v=id=>($('#'+i
  if(rec)rec.stop();const b=$('#ts-c');b.disabled=true;b.textContent='Đang chấm…';$('#ts-r').innerHTML='<p class="dots">AI đang chấm</p>';
  const l1=d.part1.items.map((it,k)=>({it,said:s1[k],s:score(it.zh,s1[k])}));
  try{const r=(a2.some(Boolean)||a3)?await ai('testcheck',{level:d.level,topic:d.topicZh,ans:d.part2.map((q,k)=>({q:q.zh,a:a2[k]})),talk:{q:d.part3.zh,a:a3}}):{};
-  const rawClips=[];d.part1.items.forEach((it,k)=>{const blob=audioById.get('t1-'+k);if(blob)rawClips.push({key:'t1-'+k,target:it.zh,audio:blob})});d.part2.forEach((q,k)=>{const blob=audioById.get('t2-'+k);if(blob)rawClips.push({key:'t2-'+k,target:q.zh+'。回答 của người học: '+a2[k],audio:blob})});const b3=audioById.get('t3');if(b3)rawClips.push({key:'t3',target:d.part3.zh+'。Bài nói của người học: '+a3,audio:b3});
-  let audioResult=null;if(rawClips.length){const clips=[];for(const c of rawClips){const a=await blobPayload(c.audio);if(a&&a.data)clips.push({key:c.key,target:c.target,mime:a.mime,data:a.data})}if(clips.length)audioResult=await geminiAudioScore(clips)}
-  const audioMap=new Map((audioResult?.clips||[]).map(x=>[x.key,x]));l1.forEach(x=>{const a=audioMap.get('t1-'+d.part1.items.indexOf(x.it));if(a&&Number.isFinite(+a.score))x.s.pct=Math.round(x.s.pct*.3+(+a.score)*.7)});
   const p1=Math.round(l1.reduce((x,y)=>x+y.s.pct,0)/l1.length),p2=Math.round(+(r.p2&&r.p2.score)||0),p3=Math.round(+(r.p3&&r.p3.score)||0),tot=Math.round(p1*.25+p2*.4+p3*.35),it2=(r.p2&&r.p2.items)||[];
   LS.set('tests',[{d:new Date().toLocaleDateString('vi-VN'),lv:d.level,t:d.topicVi||d.topicZh,s:tot},...LS.get('tests',[])].slice(0,8));
   $('#ts-r').innerHTML=`<div class="gm"><b style="font-size:18px">Tổng điểm: ${tot}/100 ${tot>=80?'🌟':tot>=60?'👍':'🔁'}</b><div class="vic">Phần 1: ${p1} · Phần 2: ${p2} · Phần 3: ${p3} (tỉ trọng 25% · 40% · 35%)</div>${brkHtml(r.breakdown)}</div>
   <label>Phần 1 · ${rd?'Đọc to':'Nhắc lại'}</label>${l1.map(x=>`<div class="gm"><div class="sc">${x.s.pct}% · sai hoặc thiếu ${x.s.miss} chữ</div><div class="cmp zh">${x.s.html}</div><div class="vic">${esc(x.it.pinyin||'')} · ${esc(x.it.vi||'')}</div><div class="vic">Bạn nói: ${esc(x.said||'(chưa nói)')}</div></div>`).join('')}
-  <label>Phần 2 · Trả lời câu hỏi</label>${d.part2.map((q,k)=>{const o=it2[k]||{},au=audioMap.get('t2-'+k);return `<div class="gm"><div class="zhc">${k+1}. ${esc(q.zh)}</div><div class="vic">Bạn trả lời: ${esc(a2[k]||'(chưa trả lời)')}${a2[k]&&o.score!=null?` · ${esc(o.score)}/100`:''}</div>${au?`<div class="vic">🎧 Gemini chấm âm thanh: <b>${esc(au.score)}/100</b> · Phát âm ${esc(au.pronunciation??'-')} · Thanh điệu ${esc(au.tones??'-')} · Lưu loát ${esc(au.fluency??'-')}</div><div class="vic">${esc(au.feedback||'')}</div>`:''}${(o.errors||[]).length?errHtml(o.errors):a2[k]?'<div class="vic">✅ Không có lỗi đáng kể</div>':''}${o.model?`<div class="vic">Câu mẫu:</div><div class="zhc">${esc(o.model)}</div><div class="vic">${esc(o.vi||'')}</div><button class="pill" style="margin-top:6px" data-t="${esc(o.model)}" onclick="say(this.dataset.t)">🔊</button>`:''}</div>`}).join('')}
-  <label>Phần 3 · Nói theo chủ đề</label><div class="vic">${a3?'Bạn nói: '+esc(a3):'(chưa nói)'}</div>${audioMap.get('t3')?`<div class="gm">🎧 Gemini chấm âm thanh: <b>${esc(audioMap.get('t3').score)}/100</b> · Phát âm ${esc(audioMap.get('t3').pronunciation??'-')} · Thanh điệu ${esc(audioMap.get('t3').tones??'-')} · Lưu loát ${esc(audioMap.get('t3').fluency??'-')}<div class="vic">${esc(audioMap.get('t3').feedback||'')}</div></div>`:''}${a3?errBlock(r.p3&&r.p3.errors):''}${modelHtml(r.p3&&r.p3.model)}${r.tip?`<p>💡 ${esc(r.tip)}</p>`:''}`;
+  <label>Phần 2 · Trả lời câu hỏi</label>${d.part2.map((q,k)=>{const o=it2[k]||{};return `<div class="gm"><div class="zhc">${k+1}. ${esc(q.zh)}</div><div class="vic">Bạn trả lời: ${esc(a2[k]||'(chưa trả lời)')}${a2[k]&&o.score!=null?` · ${esc(o.score)}/100`:''}</div>${(o.errors||[]).length?errHtml(o.errors):a2[k]?'<div class="vic">✅ Không có lỗi đáng kể</div>':''}${o.model?`<div class="vic">Câu mẫu:</div><div class="zhc">${esc(o.model)}</div><div class="vic">${esc(o.vi||'')}</div><button class="pill" style="margin-top:6px" data-t="${esc(o.model)}" onclick="say(this.dataset.t)">🔊</button>`:''}</div>`}).join('')}
+  <label>Phần 3 · Nói theo chủ đề</label><div class="vic">${a3?'Bạn nói: '+esc(a3):'(chưa nói)'}</div>${a3?errBlock(r.p3&&r.p3.errors):''}${modelHtml(r.p3&&r.p3.model)}${r.tip?`<p>💡 ${esc(r.tip)}</p>`:''}`;
   $('#ts-r').scrollIntoView({behavior:'smooth',block:'nearest'})}
  catch(e){$('#ts-r').innerHTML='';toast(e.message)}
  b.disabled=false;b.textContent='Nộp bài và chấm'}
