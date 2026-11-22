@@ -79,9 +79,7 @@ textarea{height:110px;resize:none}.cnt{text-align:right;color:var(--mu);font-siz
 .ntb{margin-top:8px;line-height:1.65;word-break:break-word}.nte textarea{height:42dvh;margin-top:8px}
 #nt{position:fixed;inset:0;background:#0006;display:none;align-items:flex-end;z-index:25}#nt.show{display:flex}#nt-b{flex:1;overflow-y:auto}
 .sgl{max-height:34dvh;overflow:auto;border:1px solid var(--ln);border-radius:14px}.sgi{display:block;width:100%;text-align:left;padding:10px 12px;border-bottom:1px solid var(--ln);word-break:break-word;line-height:1.4}.sgi:last-child{border-bottom:0}.sgi.on{background:#eefaf4;font-weight:700;color:#0a8f86}
-.cmp .tone{color:#d9822b;text-decoration:underline dotted}
-</style>
-<script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.19.6/dist/index.js"></script></head><body>
+</style></head><body>
 <div class="top"><h1>🎙 Luyện nói HSK <small style="font-size:11px;opacity:.75;font-weight:400">v11</small></h1><button onclick="openSet()" aria-label="Giọng đọc">🔊 Giọng</button></div>
 <div class="chips" id="lvchips"></div>
 <div class="tools"><button onclick="openPic()"><b>🖼 Nhìn tranh nói</b><small>Tải ảnh lên → miêu tả → AI chấm lỗi</small></button><button onclick="openWords()"><b>🔤 Đặt câu 5 từ</b><small>AI ra 5 từ → bạn đặt câu</small></button><button onclick="openStruct()"><b>🧩 Đặt câu theo cấu trúc</b><small>Chọn cấu trúc trong sổ → dịch câu Việt → AI chấm</small></button><button onclick="openTest()"><b>📝 Kiểm tra nói</b><small>Đề theo bậc HSK bạn chọn, chủ đề ngẫu nhiên</small></button></div>
@@ -232,32 +230,28 @@ function openSet(){const vs=voices();
  $('#mbody').querySelector('.lvs').onclick=e=>{const r=+e.target.dataset.r;if(r){st.voice.rate=r;LS.set('voice',st.voice);openSet()}};
  $('#vt').onclick=()=>say('你好！很高兴认识你。')}
 if('speechSynthesis' in window)speechSynthesis.onvoiceschanged=()=>{};
-const SILENCE_MS=5000,FIRST_MS=8000;
+const SILENCE_MS=5000,FIRST_MS=8000,audioById=new Map();
 function listen(onres,onend){const R=window.SpeechRecognition||window.webkitSpeechRecognition;if(!R){toast('Trình duyệt không hỗ trợ nhận diện giọng nói. Hãy gõ chữ.');return null}
- const r=new R();r.lang='zh-CN';r.interimResults=true;r.continuous=true;r.maxAlternatives=5;let fin='',tm,alts=[];
+ const r=new R();r.lang='zh-CN';r.interimResults=true;r.continuous=true;let fin='',tm,stream=null,mr=null,chunks=[];
+ // Ghi âm âm thanh gốc song song với nhận diện văn bản; âm thanh sẽ được gửi lên backend khi chấm.
+ let mediaReady=Promise.resolve();if(navigator.mediaDevices?.getUserMedia&&window.MediaRecorder){mediaReady=navigator.mediaDevices.getUserMedia({audio:true}).then(st=>{stream=st;let mime='';for(const x of ['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg'])if(MediaRecorder.isTypeSupported?.(x)){mime=x;break}mr=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);mr.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data)};mr.start(250)}).catch(()=>{});}
+ const finish=async()=>{await mediaReady;const done=()=>{stream?.getTracks().forEach(t=>t.stop());const blob=chunks.length?new Blob(chunks,{type:mr?.mimeType||'audio/webm'}):null;onend(fin,blob)};if(mr&&mr.state!=='inactive'){mr.onstop=done;try{mr.stop()}catch{done()}}else{stream?.getTracks().forEach(t=>t.stop());onend(fin,null)}};
  const bump=ms=>{clearTimeout(tm);tm=setTimeout(()=>{try{r.stop()}catch{}},ms)};
  r.onstart=()=>bump(FIRST_MS);
- r.onresult=e=>{let t='';const R=[...e.results];for(const x of R)t+=x[0].transcript;fin=t;const n=Math.max(...R.map(x=>x.length));alts=[];for(let k=0;k<n;k++)alts.push(R.map(x=>(x[k]||x[0]).transcript).join(''));onres(t);bump(SILENCE_MS)};
+ r.onresult=e=>{let t='';for(const x of e.results)t+=x[0].transcript;fin=t;onres(t);bump(SILENCE_MS)};
  r.onerror=e=>toast(e.error==='not-allowed'?'Hãy cho phép dùng micro cho trang này':e.error==='no-speech'?'Chưa nghe thấy giọng, thử lại nhé':'Không nghe rõ, thử lại nhé');
- r.onend=()=>{clearTimeout(tm);rec=null;onend(fin,alts)};try{r.start()}catch{return null}return r}
+ r.onend=()=>{clearTimeout(tm);rec=null;finish()};try{r.start()}catch{stream?.getTracks().forEach(t=>t.stop());return null}return r}
 function micToggle(cb,live,sel='#mic'){if(rec){rec.stop();return}try{speechSynthesis.cancel()}catch{}
- const m=$(sel);m?.classList.add('rec');rec=listen(live,(t,a)=>{m?.classList.remove('rec');if(t)cb(t,a)});if(!rec)m?.classList.remove('rec')}
+ const m=$(sel);m?.classList.add('rec');rec=listen(live,(t,audio)=>{m?.classList.remove('rec');if(t)cb(t,audio)});if(!rec)m?.classList.remove('rec')}
+async function blobPayload(blob){if(!blob)return null;const data=await new Promise((ok,no)=>{const fr=new FileReader();fr.onload=()=>ok(String(fr.result).split(',')[1]||'');fr.onerror=no;fr.readAsDataURL(blob)});return{mime:blob.type||'audio/webm',data}}
+async function geminiAudioScore(clips){const r=await fetch('/api/pronunciation',{method:'POST',signal:tmo(120000),headers:{'Content-Type':'application/json'},body:JSON.stringify({clips})});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Không chấm được âm thanh');return j}
+
 /* ---------- scoring ---------- */
-const D2Z='零一二三四五六七八九';
-const n2z=n=>{n=+n;if(n<10)return D2Z[n];if(n<20)return '十'+(n%10?D2Z[n%10]:'');return D2Z[Math.floor(n/10)]+'十'+(n%10?D2Z[n%10]:'')};
-const norm=s=>String(s||'').replace(/\d+/g,m=>m.length<=2?n2z(m):[...m].map(d=>D2Z[d]).join('')).replace(/[^\u3400-\u9fffa-zA-Z]/g,'');
-const pyArr=a=>{try{const P=window.pinyinPro;if(!P||!a.length)return null;const r=P.pinyin(a.join(''),{toneType:'num',type:'array'});return r&&r.length===a.length?r:null}catch{return null}};
-const pyBase=p=>String(p).replace(/\d/g,'');
-function scoreOne(target,said){const a=[...norm(target)],b=[...norm(said)],m=a.length,n=b.length,pa=pyArr(a),pb=pyArr(b);
- /* 1 = đúng chữ hoặc đồng âm cùng thanh; 0.5 = đúng âm nhưng sai thanh; 0 = sai */
- const w=(i,j)=>{if(a[i]===b[j])return 1;if(pa&&pb){if(pa[i]===pb[j])return 1;if(pyBase(pa[i])===pyBase(pb[j]))return .5}return 0};
- const d=Array.from({length:m+1},()=>Array(n+1).fill(0));
- for(let i=1;i<=m;i++)for(let j=1;j<=n;j++){const x=w(i-1,j-1);d[i][j]=Math.max(d[i-1][j],d[i][j-1],x?d[i-1][j-1]+x:0)}
- const cls=Array(m).fill('bad');let i=m,j=n;
- while(i&&j){const x=w(i-1,j-1);if(x&&d[i][j]===d[i-1][j-1]+x){cls[i-1]=x===1?'ok':'tone';i--;j--}else if(d[i-1][j]>=d[i][j-1])i--;else j--}
- return{said,miss:cls.filter(c=>c!=='ok').length,pct:m?Math.round(d[m][n]/Math.max(m,n)*100):0,html:a.map((c,k)=>`<span class="${cls[k]}">${esc(c)}</span>`).join('')}}
-/* chọn phương án nhận diện gần câu mẫu nhất */
-function score(target,said,alts){const c=[said,...(alts||[])].filter((x,k,r)=>x&&r.indexOf(x)===k);if(!c.length)c.push(said||'');let best=null;for(const t of c){const r=scoreOne(target,t);if(!best||r.pct>best.pct)best=r}return best}
+const norm=s=>s.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g,'');
+function score(target,said){const a=[...norm(target)],b=[...norm(said)],m=a.length,n=b.length;const d=Array.from({length:m+1},()=>Array(n+1).fill(0));
+ for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)d[i][j]=a[i-1]===b[j-1]?d[i-1][j-1]+1:Math.max(d[i-1][j],d[i][j-1]);
+ const ok=Array(m).fill(false);let i=m,j=n;while(i&&j){if(a[i-1]===b[j-1]){ok[i-1]=true;i--;j--}else if(d[i-1][j]>=d[i][j-1])i--;else j--}
+ return{miss:m-d[m][n],pct:m?Math.round(d[m][n]/Math.max(m,n)*100):0,html:a.map((c,k)=>`<span class="${ok[k]?'ok':'bad'}">${esc(c)}</span>`).join('')}}
 /* ---------- hỏi AI về bài ---------- */
 let askLog=[],askLine='',askBusy=false;
 const ASKQ=['Giải thích ngữ pháp bài này','Từ vựng quan trọng trong bài','Cho thêm ví dụ tương tự','Câu này dùng khi nào?'];
@@ -303,7 +297,7 @@ function stepL(){const d=pl.sc.dialogue;try{speechSynthesis.cancel()}catch{}
  if(m.role==='npc'){say(m.zh,()=>{if(pl&&d[pl.i]===m)setTimeout(()=>{if(pl&&d[pl.i]===m){pl.i++;stepL()}},500)});foot(`<div class="fr"><button class="pill" onclick="say(cur().zh)">🔊</button><button class="pill g" onclick="pl.i++;stepL()">Tiếp ›</button></div>`)}
  else{footMe()}}
 function footMe(next){foot(`<div class="fr"><button class="pill" onclick="say(cur().zh)">🔊 Nghe mẫu</button><button id="mic" class="mic" onclick="micL()">🎤</button>${next?'<button class="pill g" onclick="pl.i++;stepL()">Tiếp ›</button>':'<button class="pill" onclick="pl.i++;stepL()">Bỏ qua ›</button>'}</div>`)}
-function micL(){micToggle((t,al)=>{if(!pl)return;const m=cur(),s=score(m.zh,t,al);pl.res[pl.i]={zh:m.zh,vi:m.vi,said:s.said,pct:s.pct,html:s.html,miss:s.miss};$('#res').innerHTML=`<div class="sc">${s.pct}% ${s.pct>=80?'🌟 Rất tốt':s.pct>=60?'👍 Khá':'🔁 Thử lại nhé'}</div><div class="cmp zh">${s.html}</div><div class="vic">Máy nghe: ${esc(s.said)}</div>${s.html.includes('class="tone"')?'<div class="vic">🟠 Đúng âm nhưng sai thanh điệu</div>':''}`;footMe(s.pct>=60);$('#msgs').scrollTop=1e6},t=>{const r=$('#res');if(r)r.innerHTML=`<div class="vic">${esc(t)}</div>`})}
+function micL(){micToggle(async(t,audio)=>{if(!pl)return;const m=cur(),s=score(m.zh,t);let pct=s.pct,extra='';if(audio){try{const a=await blobPayload(audio),j=await geminiAudioScore([{key:'lesson',target:m.zh,mime:a.mime,data:a.data}]),v=j.clips?.[0];if(v){pct=Math.round(s.pct*.3+(+v.score||0)*.7);extra=`<div class="vic">🎧 Gemini nghe trực tiếp: ${esc(v.score)}/100 · Phát âm ${esc(v.pronunciation)} · Thanh điệu ${esc(v.tones)} · Lưu loát ${esc(v.fluency)}</div><div class="vic">${esc(v.feedback||'')}</div>`}}catch(e){extra=`<div class="vic">Không chấm được âm thanh: ${esc(e.message)}</div>`}}pl.res[pl.i]={zh:m.zh,vi:m.vi,said:t,pct,html:s.html,miss:s.miss};$('#res').innerHTML=`<div class="sc">${pct}% ${pct>=80?'🌟 Rất tốt':pct>=60?'👍 Khá':'🔁 Thử lại nhé'}</div><div class="cmp zh">${s.html}</div>${extra}`;footMe(pct>=60);$('#msgs').scrollTop=1e6},t=>{const r=$('#res');if(r)r.innerHTML=`<div class="vic">${esc(t)}</div>`})}
 function sumL(d){const lim=pl.end==null?d.length:pl.end,me=d.map((m,i)=>[m,i]).filter(x=>x[0].role==='me'&&x[1]<lim);if(!me.length)return'';
  const said=me.filter(x=>pl.res[x[1]]).length,bad=me.filter(x=>!pl.res[x[1]]||pl.res[x[1]].pct<80);
  return `<div class="gm"><b>📋 Tổng kết lỗi</b><div class="vic">Đã nói ${said}/${me.length} câu · cần luyện lại ${bad.length} câu</div></div>`+(bad.length?bad.map(([m,i])=>{const r=pl.res[i];return `<div class="gm">${r?`<div class="sc">${r.pct}% · sai hoặc thiếu ${r.miss} chữ</div><div class="cmp zh">${r.html}</div><div class="vic">Bạn nói: ${esc(r.said)}</div>`:`<div class="vic">Chưa luyện câu này</div><div class="zh">${esc(m.zh)}</div>`}<div class="vic">${esc(m.pinyin||'')}</div><div class="vic">${esc(m.vi||'')}</div><button class="pill" style="margin-top:6px" data-t="${esc(m.zh)}" onclick="say(this.dataset.t)">🔊 Nghe lại</button></div>`}).join(''):'<div class="gm">🌟 Tất cả các câu đều đạt từ 80% trở lên!</div>')}
@@ -349,7 +343,7 @@ const errHtml=l=>(l||[]).map(f=>`<div class="er">${tag(f.type||'Lỗi')}<div cla
 const errBlock=l=>(l&&l.length)?`<label>Tổng kết lỗi (${l.length})</label><div>${cnt(l)}</div>${errHtml(l)}`:'<p>✅ Không có lỗi đáng kể.</p>';
 const brkHtml=b=>b?`<div class="brk">${[['grammar','Ngữ pháp'],['vocab','Từ vựng'],['content','Nội dung']].filter(x=>b[x[0]]!=null).map(([k,n])=>{const v=Math.max(0,Math.min(100,Math.round(+b[k]||0)));return `<div><small>${n}</small><div class="bar"><i style="width:${v}%"></i></div><b>${v}</b></div>`}).join('')}</div>`:'';
 const modelHtml=m=>m&&m.zh?`<label>Bài mẫu</label><div class="gm"><div class="zhc">${esc(m.zh)}</div><div class="vic">${esc(m.pinyin)}</div><div class="vic">${esc(m.vi)}</div><button class="pill" style="margin-top:6px" data-t="${esc(m.zh)}" onclick="say(this.dataset.t)">🔊 Nghe mẫu</button></div>`:'';
-function attachMic(btn,ta,after){btn.onclick=()=>{const base=ta.value?ta.value.trim()+' ':'',f=t=>{ta.value=base+t;after&&after()};micToggle(f,f,'#'+btn.id)}}
+function attachMic(btn,ta,after){btn.onclick=()=>{const base=ta.value?ta.value.trim()+' ':'',f=async(t,audio)=>{ta.value=base+t;if(ta.id)audioById.delete(ta.id);if(audio&&ta.id)audioById.set(ta.id,audio);after&&after()};if(ta.id)audioById.delete(ta.id);micToggle(f,f,'#'+btn.id)}}
 /* nhìn tranh nói: tải ảnh lên */
 let pic={img:null};
 function openPic(){
@@ -441,12 +435,15 @@ async function tsCheck(){const d=ts.data,rd=d.part1.mode==='read',v=id=>($('#'+i
  if(rec)rec.stop();const b=$('#ts-c');b.disabled=true;b.textContent='Đang chấm…';$('#ts-r').innerHTML='<p class="dots">AI đang chấm</p>';
  const l1=d.part1.items.map((it,k)=>({it,said:s1[k],s:score(it.zh,s1[k])}));
  try{const r=(a2.some(Boolean)||a3)?await ai('testcheck',{level:d.level,topic:d.topicZh,ans:d.part2.map((q,k)=>({q:q.zh,a:a2[k]})),talk:{q:d.part3.zh,a:a3}}):{};
+  const rawClips=[];d.part1.items.forEach((it,k)=>{const blob=audioById.get('t1-'+k);if(blob)rawClips.push({key:'t1-'+k,target:it.zh,audio:blob})});d.part2.forEach((q,k)=>{const blob=audioById.get('t2-'+k);if(blob)rawClips.push({key:'t2-'+k,target:q.zh+'。回答 của người học: '+a2[k],audio:blob})});const b3=audioById.get('t3');if(b3)rawClips.push({key:'t3',target:d.part3.zh+'。Bài nói của người học: '+a3,audio:b3});
+  let audioResult=null;if(rawClips.length){const clips=[];for(const c of rawClips){const a=await blobPayload(c.audio);if(a&&a.data)clips.push({key:c.key,target:c.target,mime:a.mime,data:a.data})}if(clips.length)audioResult=await geminiAudioScore(clips)}
+  const audioMap=new Map((audioResult?.clips||[]).map(x=>[x.key,x]));l1.forEach(x=>{const a=audioMap.get('t1-'+d.part1.items.indexOf(x.it));if(a&&Number.isFinite(+a.score))x.s.pct=Math.round(x.s.pct*.3+(+a.score)*.7)});
   const p1=Math.round(l1.reduce((x,y)=>x+y.s.pct,0)/l1.length),p2=Math.round(+(r.p2&&r.p2.score)||0),p3=Math.round(+(r.p3&&r.p3.score)||0),tot=Math.round(p1*.25+p2*.4+p3*.35),it2=(r.p2&&r.p2.items)||[];
   LS.set('tests',[{d:new Date().toLocaleDateString('vi-VN'),lv:d.level,t:d.topicVi||d.topicZh,s:tot},...LS.get('tests',[])].slice(0,8));
   $('#ts-r').innerHTML=`<div class="gm"><b style="font-size:18px">Tổng điểm: ${tot}/100 ${tot>=80?'🌟':tot>=60?'👍':'🔁'}</b><div class="vic">Phần 1: ${p1} · Phần 2: ${p2} · Phần 3: ${p3} (tỉ trọng 25% · 40% · 35%)</div>${brkHtml(r.breakdown)}</div>
   <label>Phần 1 · ${rd?'Đọc to':'Nhắc lại'}</label>${l1.map(x=>`<div class="gm"><div class="sc">${x.s.pct}% · sai hoặc thiếu ${x.s.miss} chữ</div><div class="cmp zh">${x.s.html}</div><div class="vic">${esc(x.it.pinyin||'')} · ${esc(x.it.vi||'')}</div><div class="vic">Bạn nói: ${esc(x.said||'(chưa nói)')}</div></div>`).join('')}
-  <label>Phần 2 · Trả lời câu hỏi</label>${d.part2.map((q,k)=>{const o=it2[k]||{};return `<div class="gm"><div class="zhc">${k+1}. ${esc(q.zh)}</div><div class="vic">Bạn trả lời: ${esc(a2[k]||'(chưa trả lời)')}${a2[k]&&o.score!=null?` · ${esc(o.score)}/100`:''}</div>${(o.errors||[]).length?errHtml(o.errors):a2[k]?'<div class="vic">✅ Không có lỗi đáng kể</div>':''}${o.model?`<div class="vic">Câu mẫu:</div><div class="zhc">${esc(o.model)}</div><div class="vic">${esc(o.vi||'')}</div><button class="pill" style="margin-top:6px" data-t="${esc(o.model)}" onclick="say(this.dataset.t)">🔊</button>`:''}</div>`}).join('')}
-  <label>Phần 3 · Nói theo chủ đề</label><div class="vic">${a3?'Bạn nói: '+esc(a3):'(chưa nói)'}</div>${a3?errBlock(r.p3&&r.p3.errors):''}${modelHtml(r.p3&&r.p3.model)}${r.tip?`<p>💡 ${esc(r.tip)}</p>`:''}`;
+  <label>Phần 2 · Trả lời câu hỏi</label>${d.part2.map((q,k)=>{const o=it2[k]||{},au=audioMap.get('t2-'+k);return `<div class="gm"><div class="zhc">${k+1}. ${esc(q.zh)}</div><div class="vic">Bạn trả lời: ${esc(a2[k]||'(chưa trả lời)')}${a2[k]&&o.score!=null?` · ${esc(o.score)}/100`:''}</div>${au?`<div class="vic">🎧 Gemini chấm âm thanh: <b>${esc(au.score)}/100</b> · Phát âm ${esc(au.pronunciation??'-')} · Thanh điệu ${esc(au.tones??'-')} · Lưu loát ${esc(au.fluency??'-')}</div><div class="vic">${esc(au.feedback||'')}</div>`:''}${(o.errors||[]).length?errHtml(o.errors):a2[k]?'<div class="vic">✅ Không có lỗi đáng kể</div>':''}${o.model?`<div class="vic">Câu mẫu:</div><div class="zhc">${esc(o.model)}</div><div class="vic">${esc(o.vi||'')}</div><button class="pill" style="margin-top:6px" data-t="${esc(o.model)}" onclick="say(this.dataset.t)">🔊</button>`:''}</div>`}).join('')}
+  <label>Phần 3 · Nói theo chủ đề</label><div class="vic">${a3?'Bạn nói: '+esc(a3):'(chưa nói)'}</div>${audioMap.get('t3')?`<div class="gm">🎧 Gemini chấm âm thanh: <b>${esc(audioMap.get('t3').score)}/100</b> · Phát âm ${esc(audioMap.get('t3').pronunciation??'-')} · Thanh điệu ${esc(audioMap.get('t3').tones??'-')} · Lưu loát ${esc(audioMap.get('t3').fluency??'-')}<div class="vic">${esc(audioMap.get('t3').feedback||'')}</div></div>`:''}${a3?errBlock(r.p3&&r.p3.errors):''}${modelHtml(r.p3&&r.p3.model)}${r.tip?`<p>💡 ${esc(r.tip)}</p>`:''}`;
   $('#ts-r').scrollIntoView({behavior:'smooth',block:'nearest'})}
  catch(e){$('#ts-r').innerHTML='';toast(e.message)}
  b.disabled=false;b.textContent='Nộp bài và chấm'}
