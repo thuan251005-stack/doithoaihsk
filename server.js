@@ -87,6 +87,42 @@ const pickKey=()=>{const n=Date.now(),ready=KEYS.filter(k=>(KCOOL.get(k)||0)<=n)
 // Schema chấm phát âm: ép Gemini trả JSON đúng khuôn, ít lỗi parse hơn và gọn hơn
 const PI={type:'INTEGER'},PS={type:'STRING'};
 const PRON_SCHEMA={type:'OBJECT',properties:{heard:PS,heardPinyin:PS,score:PI,breakdown:{type:'OBJECT',properties:{tone:PI,sound:PI,fluency:PI,accuracy:PI},required:['tone','sound','fluency','accuracy']},good:PS,errors:{type:'ARRAY',maxItems:4,items:{type:'OBJECT',properties:{type:{type:'STRING',enum:['Thanh điệu','Thanh mẫu','Vận mẫu','Thiếu chữ','Thừa chữ','Trôi chảy']},word:PS,said:PS,better:PS,why:PS},required:['type','word','said','better','why']}},tip:PS},required:['heard','heardPinyin','score','breakdown','good','errors','tip']};
+// ===== Chấm phát âm: bê nguyên cách làm của main.py (Python) sang đây =====
+const PRON_MODEL=process.env.GEMINI_PRON_MODEL||process.env.GEMINI_AUDIO_MODEL||process.env.GEMINI_MODEL||'gemini-3.5-flash';
+const PSC={type:'OBJECT',properties:{transcript:PS,score:PI,accuracy:PI,initials:PI,finals:PI,tones:PI,fluency:PI,confidence:{type:'STRING',enum:['high','medium','low']},heard:{type:'BOOLEAN'},feedback:PS,issues:{type:'ARRAY',maxItems:3,items:{type:'OBJECT',properties:{syllable:PS,expected:PS,problem:PS,tip:PS},required:['syllable','expected','problem','tip']}}},required:['transcript','score','accuracy','initials','finals','tones','fluency','confidence','heard','feedback','issues']};
+async function pronGem(b,audio){
+ const t0=Date.now(),model=PRON_MODEL,n=v=>Math.max(0,Math.min(100,Math.round(+v)||0));
+ const instr='Bạn là giáo viên ngữ âm tiếng Trung phổ thông. Hãy nghe trực tiếp âm thanh, không dùng câu mẫu để tự điền những phần không nghe được. '
+  +`Câu mẫu: ${b.text||'không có (người học nói tự do)'}. Pinyin chuẩn: ${b.pinyin||'không có'}. `
+  +'Chép lại chính xác lời người học thực sự nói. Đánh giá riêng độ khớp chữ, phụ âm đầu (声母), vận mẫu (韵母), thanh điệu (声调) và độ trôi chảy. '
+  +'Chú ý thanh 2/3, thanh nhẹ, biến điệu thanh 3 và các cặp zh/ch/sh với z/c/s, j/q/x, n/l, -n/-ng. '
+  +'Chỉ nêu lỗi khi nghe có bằng chứng rõ; không suy đoán thanh điệu từ chữ nhận diện. '
+  +'Nếu âm thanh nhiễu, quá ngắn, bị cắt hoặc không nghe rõ, confidence=low, heard=false và các điểm phải là 0; nói rõ cần ghi âm lại. '
+  +'Điểm chỉ là ước lượng luyện tập, không phải phép đo ngữ âm chuẩn. Trả về JSON đúng schema, issues tối đa 3 mục quan trọng nhất; feedback chỉ 1 câu ngắn, mỗi problem và tip không quá 10 từ. Trả lời ngay, không giải thích dài.';
+ const mk=vi=>JSON.stringify({systemInstruction:{parts:[{text:instr}]},contents:[{role:'user',parts:[{text:'Hãy nghe và phân tích bản ghi âm này.'},audio]}],generationConfig:{responseMimeType:'application/json',responseSchema:PSC,...(TV[vi]?{thinkingConfig:TV[vi]}:{})}});
+ let last='',swaps=0;
+ for(let t=0;t<6;t++){
+  const left=45000-(Date.now()-t0);if(left<3000)break;
+  const key=pickKey(),vi=THINK.get(model)??TSTART;
+  let r;try{r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',signal:AbortSignal.timeout(left),headers:{'Content-Type':'application/json','x-goog-api-key':key},body:mk(vi)})}
+  catch{last='Gemini không phản hồi kịp, thử lại.';break}
+  if(r.ok){const j=await r.json(),x=(j.candidates?.[0]?.content?.parts||[]).filter(p=>!p.thought).map(p=>p.text||'').join('');let o;
+   try{o=JSON.parse(x)}catch{last='Gemini trả kết quả phân tích không hợp lệ. Hãy thử lại.';continue}
+   const ok=o.heard===true&&o.confidence!=='low';
+   console.log('pron',model,Date.now()-t0+'ms','think',JSON.stringify(TV[vi]));
+   return{heard:String(o.transcript||''),heardPinyin:'',score:ok?n(o.score):0,breakdown:{tone:n(o.tones),sound:n(((+o.initials||0)+(+o.finals||0))/2),fluency:n(o.fluency),accuracy:n(o.accuracy)},good:String(o.feedback||''),errors:(Array.isArray(o.issues)?o.issues:[]).slice(0,3).map(x=>({type:'Phát âm',word:String(x.syllable||''),said:String(x.problem||''),better:String(x.expected||''),why:String(x.tip||'')})),tip:ok?'':'Âm thanh chưa rõ, hãy ghi âm lại ở nơi yên tĩnh.',ms:Date.now()-t0,model}}
+  let m='';try{m=(await r.json()).error?.message||''}catch{}
+  last=`Gemini lỗi ${r.status} (model: ${model}): ${m}`.slice(0,300);
+  const bad=r.status===401||r.status===403||(r.status===400&&/API key/i.test(m));
+  if(r.status===429||bad||r.status>=500){KCOOL.set(key,Date.now()+(bad?900e3:r.status===429?(/per ?day|daily/i.test(m)?3600e3:90e3):15e3));
+   if(KEYS.length>1&&swaps<KEYS.length-1){swaps++;continue}
+   if(bad)throw new Error('Khóa Gemini không hợp lệ hoặc bị từ chối. Kiểm tra GEMINI_API_KEYS trên Render.');
+   if(r.status===429)throw Object.assign(new Error('Gemini đang giới hạn lượt. Hãy đợi một chút rồi thử lại.'),{code:429});
+   throw new Error(last)}
+  if(r.status===400&&TV[vi]&&THINK_ERR.test(m)){THINK.set(model,vi+1);continue}
+  if(r.status===404)throw new Error(`Gemini không tìm thấy model '${model}'. Hãy đổi GEMINI_PRON_MODEL hoặc GEMINI_MODEL.`);
+  throw new Error(last)}
+ throw new Error(last||'Gemini không phản hồi, thử lại.')}
 async function gem(prompt,models=MODELS,maxTok=0,extra=[],opt={}){
  let last='',t0=Date.now(),quota=false;const TOTAL=opt.total||55000;
  for(const model of models){let swaps=0;
@@ -166,6 +202,7 @@ http.createServer((req,res)=>{
     let imgs=[];
     if(T==='picfb'){const m=String(b.imgMime||''),d=String(b.imgData||'');if(!/^image\/(jpeg|png|webp)$/.test(m)||d.length<100||d.length>1.5e6||!/^[A-Za-z0-9+/]+={0,2}$/.test(d))return send(400,{error:'Ảnh không hợp lệ hoặc quá lớn, hãy chọn ảnh khác.'});imgs=[{inlineData:{mimeType:m,data:d}}]}
     if(T==='pronfb'){const m=String(b.audMime||'').split(';')[0].trim().toLowerCase(),d=String(b.audData||'');if(!AUDIO_OK.test(m)||d.length<200||d.length>2.8e6||!/^[A-Za-z0-9+/]+={0,2}$/.test(d))return send(400,{error:'Bản ghi âm không hợp lệ hoặc quá dài (tối đa khoảng 60 giây), hãy ghi lại.'});imgs=[{inlineData:{mimeType:m,data:d}}]}
+    if(T==='pronfb')return send(200,await pronGem(b,imgs[0]));
     const out=await gem(P[T](b),T==='pronfb'?AM:T==='notes'||T==='words'?CHATM:T==='feedback'||T==='picfb'||T==='wordscheck'||T==='testcheck'||T==='structcheck'?FBM:MODELS,{feedback:1200,picfb:2000,pronfb:3000,wordscheck:1200,words:400,testgen:1800,testcheck:2600,structgen:800,structcheck:2000}[T]||0,imgs,T==='pronfb'?{schema:PRON_SCHEMA,temp:0.2,timeout:40000,total:60000}:{});
     if(T==='pronfb'&&(typeof out.heard!=='string'||typeof out.score!=='number'))throw new Error('AI chấm phát âm chưa đúng định dạng, thử lại.');
     if(T==='words'){if(!Array.isArray(out.words)||out.words.length<5||out.words.some(w=>!w||!w.zh))throw new Error('AI chọn từ chưa đúng định dạng, thử lại.');out.words=out.words.slice(0,5)}
