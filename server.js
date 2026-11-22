@@ -42,6 +42,11 @@ wordscheck:b=>`Người học tiếng Trung (${lv(b.level)}) được giao 5 t�
 Nhận xét bằng tiếng Việt. Câu để trống hoặc không chứa từ được giao thì ok=false. ${ERR}
 Trả về JSON: {"score":số 0-100,${BRK},"items":[{"word":"từ được giao","ok":true,"type":"loại lỗi chính (Ngữ pháp, Từ vựng, Sai chữ, Nội dung hoặc Chưa đặt câu), để rỗng nếu đúng","better":"câu đúng tiếng Trung (giữ câu của người học nếu đã đúng; nếu sai hoặc trống thì viết câu sửa/câu mẫu dùng từ đó)","pinyin":"pinyin của better","vi":"dịch better","why":"giải thích ngắn tiếng Việt, rỗng nếu đúng"}],"tip":"lời khuyên 1 câu"}
 Yêu cầu: rất ngắn gọn; "items" đúng 5 phần tử theo thứ tự từ được giao; "why" dưới 20 chữ; câu mẫu đúng trình độ.`,
+pronfb:b=>`Bạn là giáo viên phát âm tiếng Trung. Hãy NGHE kỹ file ghi âm đính kèm của người học (${lv(b.level)}). `+(b.text?`Câu người học được yêu cầu đọc: "${b.text}". `:'Người học nói tự do, không có câu mẫu. ')+`
+Việc cần làm: (1) chép lại đúng những gì bạn NGHE được bằng chữ Hán giản thể và pinyin có dấu thanh. Tuyệt đối không tự sửa cho đúng và không thêm chữ bạn không nghe thấy; (2) `+(b.text?'so với câu mẫu để tìm chữ đọc sai, đọc thiếu, đọc thừa;':'tự đánh giá độ rõ ràng của phát âm;')+` (3) chấm thanh mẫu/vận mẫu, thanh điệu (thanh 1-4, thanh nhẹ, biến điệu của 不/一 và thanh 3 liên tiếp), độ trôi chảy.
+Chỉ nêu lỗi khi bạn nghe thấy rõ; không chắc thì không nêu. Nếu không có giọng nói, quá ồn hoặc không phải tiếng Trung thì "heard" để rỗng, score 0 và nói rõ trong "tip". Giải thích bằng tiếng Việt.
+Trả về JSON: {"heard":"chữ Hán nghe được","heardPinyin":"pinyin nghe được","score":số 0-100,"breakdown":{"tone":số 0-100,"sound":số 0-100,"fluency":số 0-100,"accuracy":số 0-100},"good":"điểm tốt, 1 câu","errors":[{"type":"Thanh điệu|Thanh mẫu|Vận mẫu|Thiếu chữ|Thừa chữ|Trôi chảy","word":"chữ hoặc âm bị lỗi","said":"pinyin bạn nghe được","better":"pinyin đúng","why":"mẹo sửa tiếng Việt dưới 25 chữ"}],"tip":"lời khuyên, 1-2 câu"}
+Yêu cầu: rất ngắn gọn; "errors" tối đa 6 lỗi quan trọng nhất; "accuracy" là độ khớp với câu mẫu (nếu nói tự do thì bằng độ rõ ràng).`,
 testgen:b=>{const L=b.level,band=L<=2?'Phần 1 mode "repeat" (nghe rồi nhắc lại): đúng 4 câu, mỗi câu 4-8 chữ. Phần 2: đúng 3 câu hỏi rất đơn giản về chủ đề (trả lời 1 câu ngắn). Phần 3: đề nói về chủ đề, người học nói 2-3 câu.':L<=4?'Phần 1 mode "repeat" (nghe rồi nhắc lại): đúng 3 câu, mỗi câu 10-18 chữ. Phần 2: đúng 2 câu hỏi về trải nghiệm cá nhân (trả lời 1-2 câu). Phần 3: đề nói về chủ đề, người học nói 4-5 câu.':L<=6?'Phần 1 mode "read" (đọc to): đúng 1 đoạn văn 2-3 câu, khoảng 50-80 chữ, đọc trôi chảy. Phần 2: đúng 2 câu hỏi nêu ý kiến và lý do. Phần 3: đề nói về chủ đề, người học nói 6-8 câu có mở đầu, ý chính, kết.':'Phần 1 mode "read" (đọc to): đúng 1 đoạn văn khoảng 90-130 chữ, từ vựng trừu tượng, có thành ngữ hoặc câu dài. Phần 2: đúng 2 câu hỏi quan điểm mang tính trừu tượng, cần lập luận. Phần 3: đề nói trong khoảng 1 phút (8-10 câu), có lập luận và dẫn chứng.';
 return `Soạn một bài KIỂM TRA NÓI tiếng Trung cho người học (${lv(L)}) với chủ đề: "${b.theme}". Mọi nội dung phải nằm trong phạm vi bậc ${L}. ${band}
 Trả về JSON: {"topicZh":"tên chủ đề tiếng Trung ngắn","topicVi":"nghĩa tiếng Việt","part1":{"mode":"repeat hoặc read","items":[{"zh":"","pinyin":"","vi":""}]},"part2":[{"zh":"câu hỏi","pinyin":"","vi":""}],"part3":{"zh":"đề bài nói bằng tiếng Trung","vi":"dịch tiếng Việt","hints":["3 gợi ý ý nói, tiếng Trung rất ngắn"]}}
@@ -71,6 +76,8 @@ const CHAT_MODEL=process.env.GEMINI_CHAT_MODEL||'gemini-flash-lite-latest';
 const FB=process.env.GEMINI_FEEDBACK_MODEL||CHAT_MODEL;
 const FBM=[FB,...MODELS.filter(m=>m!==FB)];
 const CHATM=[CHAT_MODEL,...MODELS.filter(m=>m!==CHAT_MODEL)];
+const AUD=process.env.GEMINI_AUDIO_MODEL||MODEL,AM=[AUD,...MODELS.filter(m=>m!==AUD)];   // model chấm phát âm: mặc định dùng model mạnh
+const AUDIO_OK=/^audio\/(wav|x-wav|wave|mp3|mpeg|aac|ogg|flac|aiff|x-aiff|webm|mp4|x-m4a|m4a)$/;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function gem(prompt,models=MODELS,maxTok=0,extra=[]){
  let last='',t0=Date.now(),think=true,quota=false;ki=(ki+1)%Math.max(KEYS.length,1);
@@ -121,34 +128,16 @@ const HITS=new Map();setInterval(()=>{const n=Date.now();for(const[k,v]of HITS)i
 function limited(req){const ip=String(req.headers['x-forwarded-for']||req.socket.remoteAddress||'').split(',')[0].trim(),n=Date.now();let v=HITS.get(ip);if(!v||n-v.t>60000){v={t:n,c:0};HITS.set(ip,v)}return ++v.c>(+process.env.RATE_PER_MIN||40)}
 let G={t:0,c:0};
 const globalLimited=()=>{const n=Date.now();if(n-G.t>60000)G={t:n,c:0};return ++G.c>(+process.env.GLOBAL_PER_MIN||240)};
-async function pronunciationScore(clips){
- const extra=[];const labels=[];
- clips.forEach((c,i)=>{labels.push(`${i+1}. Mục ${c.key}; câu/đề tham chiếu: ${c.target}`);extra.push({text:`Âm thanh ${i+1} (key ${c.key}), câu tham chiếu: ${c.target}`},{inlineData:{mimeType:c.mimeType,data:c.data}})});
- const prompt=`Bạn là chuyên gia đánh giá phát âm tiếng Trung phổ thông. Hãy nghe trực tiếp từng tệp âm thanh được đính kèm, KHÔNG dựa vào bản nhận diện giọng nói của trình duyệt. Danh sách clip theo đúng thứ tự: ${labels.join('\n')}.
-Với mỗi clip, chấm điểm 0-100: score tổng thể; pronunciation độ rõ âm đầu/vần; tones độ chính xác thanh điệu; fluency độ liền mạch/tốc độ/ngập ngừng. Nghe kỹ xem người học có thực sự nói tiếng Trung và có nói đúng câu tham chiếu không. Nếu là câu hỏi mở hoặc bài nói dài, đánh giá theo phát âm và mức độ rõ ràng, không đòi đọc y nguyên đề. transcript ghi lại điều thực sự nghe được bằng chữ Hán giản thể; issues tối đa 4 lỗi cụ thể, ưu tiên âm/syllable và thanh điệu; feedback tiếng Việt ngắn, có hướng sửa. Không suy diễn lỗi nếu âm thanh không rõ; khi không đủ dữ liệu hãy ghi rõ.
-Trả về JSON đúng dạng: {"clips":[{"key":"giữ nguyên key","score":0,"pronunciation":0,"tones":0,"fluency":0,"transcript":"","issues":[""],"feedback":""}]}. Phải có đúng ${clips.length} phần tử theo thứ tự clip.`;
- return await gem(prompt,FBM,2200,extra);
-}
 http.createServer((req,res)=>{
- if(req.method==='POST'&&req.url==='/api/pronunciation'){
+ if(req.method==='POST'&&(req.url==='/api/ai'||req.url==='/api/stream'||req.url==='/api/vision'||req.url==='/api/audio')){
   if(limited(req)||globalLimited()){res.writeHead(429,{'Content-Type':'application/json'});return res.end(JSON.stringify({error:'Bạn thao tác hơi nhanh, đợi một chút rồi thử lại.'}))}
-  let body='',big=false;req.setEncoding('utf8');req.on('data',c=>{if(big)return;body+=c;if(body.length>16e6){big=true;res.writeHead(413,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Âm thanh quá lớn. Hãy ghi âm ngắn hơn.'}))}});
-  req.on('end',async()=>{if(big)return;const send=(c,o)=>{if(res.headersSent)return res.end();res.writeHead(c,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(o))};try{
-   if(!KEY)return send(500,{error:'Thiếu biến GEMINI_API_KEY trên Render.'});let b;try{b=JSON.parse(body||'{}')}catch{return send(400,{error:'Dữ liệu âm thanh không hợp lệ'})}
-   if(!Array.isArray(b.clips)||!b.clips.length||b.clips.length>12)return send(400,{error:'Không có đoạn ghi âm hợp lệ.'});
-   const clips=b.clips.map((x,i)=>{const mime=String(x.mime||''),data=String(x.data||'');if(!/^audio\/(webm|mp4|ogg|wav|mpeg|mp3|m4a)(;.*)?$/i.test(mime)||data.length<100||data.length>1.2e6||!/^[A-Za-z0-9+/]+={0,2}$/.test(data))throw new Error('Đoạn ghi âm '+(i+1)+' không hợp lệ hoặc quá dài.');return{key:String(x.key||i).slice(0,30),target:String(x.target||'').slice(0,500),mimeType:mime.split(';')[0],data}});
-   const out=await pronunciationScore(clips);if(!out||!Array.isArray(out.clips))throw new Error('Gemini chưa trả về kết quả chấm âm thanh hợp lệ.');out.clips=out.clips.slice(0,clips.length).map((x,i)=>({...x,key:clips[i].key,score:Math.max(0,Math.min(100,+x.score||0)),pronunciation:Math.max(0,Math.min(100,+x.pronunciation||0)),tones:Math.max(0,Math.min(100,+x.tones||0)),fluency:Math.max(0,Math.min(100,+x.fluency||0))}));send(200,out);
-  }catch(e){send(Number.isInteger(e.code)?e.code:500,{error:e.message||'Lỗi chấm âm thanh'})}});return;
- }
- if(req.method==='POST'&&(req.url==='/api/ai'||req.url==='/api/stream'||req.url==='/api/vision')){
-  if(limited(req)||globalLimited()){res.writeHead(429,{'Content-Type':'application/json'});return res.end(JSON.stringify({error:'Bạn thao tác hơi nhanh, đợi một chút rồi thử lại.'}))}
-  const MAX=req.url==='/api/vision'?1.6e6:20000;
+  const MAX=req.url==='/api/vision'?1.6e6:req.url==='/api/audio'?3e6:20000;
   req.setEncoding('utf8');let body='',big=false;req.on('data',c=>{if(big)return;body+=c;if(body.length>MAX){big=true;res.writeHead(413,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Yêu cầu quá dài'}))}});
   req.on('end',async()=>{if(big)return;const send=(c,o)=>{if(res.headersSent)return res.end();res.writeHead(c,{'Content-Type':'application/json'});res.end(JSON.stringify(o))};
    try{if(!KEY)return send(500,{error:'Thiếu biến GEMINI_API_KEY trên Render.'});
     let b;try{b=JSON.parse(body||'{}')}catch{return send(400,{error:'Dữ liệu gửi lên không hợp lệ'})}
     if(!b||typeof b!=='object'||!Object.prototype.hasOwnProperty.call(P,b.task))return send(400,{error:'Yêu cầu không hợp lệ'});
-    if((req.url==='/api/vision')!==(b.task==='picfb'))return send(400,{error:'Yêu cầu không hợp lệ'});
+    if((req.url==='/api/vision')!==(b.task==='picfb')||(req.url==='/api/audio')!==(b.task==='pronfb'))return send(400,{error:'Yêu cầu không hợp lệ'});
     b.question=String(b.question||'').slice(0,500);b.line=String(b.line||'').slice(0,200);b.context=String(b.context||'').slice(0,400);b.lines=(Array.isArray(b.lines)?b.lines:[]).slice(0,40).map(x=>String(x).slice(0,120));b.qa=(Array.isArray(b.qa)?b.qa:[]).slice(-6).map(x=>({q:String((x&&x.q)||'').slice(0,300),a:String((x&&x.a)||'').slice(0,400)}));b.grammar=String(b.grammar||'').slice(0,300);b.focus=String(b.focus||'').slice(0,300);b.level=Math.min(9,Math.max(1,+b.level||2));b.desc=String(b.desc||'').slice(0,1500);
     b.partner=String(b.partner||'').slice(0,100);b.zh=String(b.zh||'').slice(0,300);
     b.topic=String(b.topic||'').slice(0,100);b.text=String(b.text||'').slice(0,600);b.words=(Array.isArray(b.words)?b.words:[]).slice(0,5).map(x=>String(x).slice(0,20));b.prev=(Array.isArray(b.prev)?b.prev:[]).slice(-30).map(x=>String(x).slice(0,20));b.sentences=(Array.isArray(b.sentences)?b.sentences:[]).slice(0,5).map(x=>String(x||'').slice(0,200));while(b.sentences.length<5)b.sentences.push('');b.seed=THEMES[Math.floor(Math.random()*THEMES.length)];
@@ -163,7 +152,9 @@ http.createServer((req,res)=>{
     if(T==='structcheck'&&(!b.focus.trim()||!b.ans.some(x=>x.a.trim())))return send(400,{error:'Hãy đặt ít nhất một câu.'});
     let imgs=[];
     if(T==='picfb'){const m=String(b.imgMime||''),d=String(b.imgData||'');if(!/^image\/(jpeg|png|webp)$/.test(m)||d.length<100||d.length>1.5e6||!/^[A-Za-z0-9+/]+={0,2}$/.test(d))return send(400,{error:'Ảnh không hợp lệ hoặc quá lớn, hãy chọn ảnh khác.'});imgs=[{inlineData:{mimeType:m,data:d}}]}
-    const out=await gem(P[T](b),T==='notes'||T==='words'?CHATM:T==='feedback'||T==='picfb'||T==='wordscheck'||T==='testcheck'||T==='structcheck'?FBM:MODELS,{feedback:1200,picfb:2000,wordscheck:1200,words:400,testgen:1800,testcheck:2600,structgen:800,structcheck:2000}[T]||0,imgs);
+    if(T==='pronfb'){const m=String(b.audMime||'').split(';')[0].trim().toLowerCase(),d=String(b.audData||'');if(!AUDIO_OK.test(m)||d.length<200||d.length>2.8e6||!/^[A-Za-z0-9+/]+={0,2}$/.test(d))return send(400,{error:'Bản ghi âm không hợp lệ hoặc quá dài (tối đa khoảng 60 giây), hãy ghi lại.'});imgs=[{inlineData:{mimeType:m,data:d}}]}
+    const out=await gem(P[T](b),T==='pronfb'?AM:T==='notes'||T==='words'?CHATM:T==='feedback'||T==='picfb'||T==='wordscheck'||T==='testcheck'||T==='structcheck'?FBM:MODELS,{feedback:1200,picfb:2000,pronfb:2000,wordscheck:1200,words:400,testgen:1800,testcheck:2600,structgen:800,structcheck:2000}[T]||0,imgs);
+    if(T==='pronfb'&&(typeof out.heard!=='string'||typeof out.score!=='number'))throw new Error('AI chấm phát âm chưa đúng định dạng, thử lại.');
     if(T==='words'){if(!Array.isArray(out.words)||out.words.length<5||out.words.some(w=>!w||!w.zh))throw new Error('AI chọn từ chưa đúng định dạng, thử lại.');out.words=out.words.slice(0,5)}
     if(T==='testgen'){const p1=out&&out.part1,ok=p1&&Array.isArray(p1.items)&&p1.items.length&&p1.items.every(x=>x&&x.zh)&&Array.isArray(out.part2)&&out.part2.length&&out.part2.every(x=>x&&x.zh)&&out.part3&&out.part3.zh;if(!ok)throw new Error('AI soạn đề chưa đúng định dạng, thử lại.');p1.mode=b.level>=5?'read':'repeat';p1.items=p1.items.slice(0,5);out.part2=out.part2.slice(0,4);out.theme=b.theme}
     if(T==='structgen'){const ok=out&&Array.isArray(out.items)&&out.items.length&&out.items.every(x=>x&&x.vi);if(!ok)throw new Error('AI chưa ra đúng định dạng câu, thử lại.');out.items=out.items.slice(0,3).map(x=>({vi:String(x.vi).slice(0,200),hint:String(x.hint||'').slice(0,120)}))}
