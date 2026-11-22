@@ -121,7 +121,25 @@ const HITS=new Map();setInterval(()=>{const n=Date.now();for(const[k,v]of HITS)i
 function limited(req){const ip=String(req.headers['x-forwarded-for']||req.socket.remoteAddress||'').split(',')[0].trim(),n=Date.now();let v=HITS.get(ip);if(!v||n-v.t>60000){v={t:n,c:0};HITS.set(ip,v)}return ++v.c>(+process.env.RATE_PER_MIN||40)}
 let G={t:0,c:0};
 const globalLimited=()=>{const n=Date.now();if(n-G.t>60000)G={t:n,c:0};return ++G.c>(+process.env.GLOBAL_PER_MIN||240)};
+async function pronunciationScore(clips){
+ const extra=[];const labels=[];
+ clips.forEach((c,i)=>{labels.push(`${i+1}. Mục ${c.key}; câu/đề tham chiếu: ${c.target}`);extra.push({text:`Âm thanh ${i+1} (key ${c.key}), câu tham chiếu: ${c.target}`},{inlineData:{mimeType:c.mimeType,data:c.data}})});
+ const prompt=`Bạn là chuyên gia đánh giá phát âm tiếng Trung phổ thông. Hãy nghe trực tiếp từng tệp âm thanh được đính kèm, KHÔNG dựa vào bản nhận diện giọng nói của trình duyệt. Danh sách clip theo đúng thứ tự: ${labels.join('\n')}.
+Với mỗi clip, chấm điểm 0-100: score tổng thể; pronunciation độ rõ âm đầu/vần; tones độ chính xác thanh điệu; fluency độ liền mạch/tốc độ/ngập ngừng. Nghe kỹ xem người học có thực sự nói tiếng Trung và có nói đúng câu tham chiếu không. Nếu là câu hỏi mở hoặc bài nói dài, đánh giá theo phát âm và mức độ rõ ràng, không đòi đọc y nguyên đề. transcript ghi lại điều thực sự nghe được bằng chữ Hán giản thể; issues tối đa 4 lỗi cụ thể, ưu tiên âm/syllable và thanh điệu; feedback tiếng Việt ngắn, có hướng sửa. Không suy diễn lỗi nếu âm thanh không rõ; khi không đủ dữ liệu hãy ghi rõ.
+Trả về JSON đúng dạng: {"clips":[{"key":"giữ nguyên key","score":0,"pronunciation":0,"tones":0,"fluency":0,"transcript":"","issues":[""],"feedback":""}]}. Phải có đúng ${clips.length} phần tử theo thứ tự clip.`;
+ return await gem(prompt,FBM,2200,extra);
+}
 http.createServer((req,res)=>{
+ if(req.method==='POST'&&req.url==='/api/pronunciation'){
+  if(limited(req)||globalLimited()){res.writeHead(429,{'Content-Type':'application/json'});return res.end(JSON.stringify({error:'Bạn thao tác hơi nhanh, đợi một chút rồi thử lại.'}))}
+  let body='',big=false;req.setEncoding('utf8');req.on('data',c=>{if(big)return;body+=c;if(body.length>16e6){big=true;res.writeHead(413,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Âm thanh quá lớn. Hãy ghi âm ngắn hơn.'}))}});
+  req.on('end',async()=>{if(big)return;const send=(c,o)=>{if(res.headersSent)return res.end();res.writeHead(c,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(o))};try{
+   if(!KEY)return send(500,{error:'Thiếu biến GEMINI_API_KEY trên Render.'});let b;try{b=JSON.parse(body||'{}')}catch{return send(400,{error:'Dữ liệu âm thanh không hợp lệ'})}
+   if(!Array.isArray(b.clips)||!b.clips.length||b.clips.length>12)return send(400,{error:'Không có đoạn ghi âm hợp lệ.'});
+   const clips=b.clips.map((x,i)=>{const mime=String(x.mime||''),data=String(x.data||'');if(!/^audio\/(webm|mp4|ogg|wav|mpeg|mp3|m4a)(;.*)?$/i.test(mime)||data.length<100||data.length>1.2e6||!/^[A-Za-z0-9+/]+={0,2}$/.test(data))throw new Error('Đoạn ghi âm '+(i+1)+' không hợp lệ hoặc quá dài.');return{key:String(x.key||i).slice(0,30),target:String(x.target||'').slice(0,500),mimeType:mime.split(';')[0],data}});
+   const out=await pronunciationScore(clips);if(!out||!Array.isArray(out.clips))throw new Error('Gemini chưa trả về kết quả chấm âm thanh hợp lệ.');out.clips=out.clips.slice(0,clips.length).map((x,i)=>({...x,key:clips[i].key,score:Math.max(0,Math.min(100,+x.score||0)),pronunciation:Math.max(0,Math.min(100,+x.pronunciation||0)),tones:Math.max(0,Math.min(100,+x.tones||0)),fluency:Math.max(0,Math.min(100,+x.fluency||0))}));send(200,out);
+  }catch(e){send(Number.isInteger(e.code)?e.code:500,{error:e.message||'Lỗi chấm âm thanh'})}});return;
+ }
  if(req.method==='POST'&&(req.url==='/api/ai'||req.url==='/api/stream'||req.url==='/api/vision')){
   if(limited(req)||globalLimited()){res.writeHead(429,{'Content-Type':'application/json'});return res.end(JSON.stringify({error:'Bạn thao tác hơi nhanh, đợi một chút rồi thử lại.'}))}
   const MAX=req.url==='/api/vision'?1.6e6:20000;
