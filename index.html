@@ -250,7 +250,7 @@ async function toWav16k(blob){const ctx=new(window.AudioContext||window.webkitAu
  w(0,'RIFF');o.setUint32(4,36+pcm.length*2,true);w(8,'WAVE');w(12,'fmt ');o.setUint32(16,16,true);o.setUint16(20,1,true);o.setUint16(22,1,true);o.setUint32(24,rate,true);o.setUint32(28,rate*2,true);o.setUint16(32,2,true);o.setUint16(34,16,true);w(36,'data');o.setUint32(40,pcm.length*2,true);
  for(let i=0;i<pcm.length;i++){const x=Math.max(-1,Math.min(1,pcm[i]));o.setInt16(44+i*2,x<0?x*0x8000:x*0x7fff,true)}return o.buffer}
 function b64(ab){let s='';const u=new Uint8Array(ab);for(let i=0;i<u.length;i+=0x8000)s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(s)}
-function pronHtml(r,url){const sc=Math.round(+r.score||0);return `<div class="gm"><b>🎧 AI chấm phát âm: ${sc}/100 ${sc>=80?'🌟':sc>=60?'👍':'🔁'}</b>${brkHtml(r.breakdown)}${r.heard?`<div class="vic">AI nghe được:</div><div class="zhc">${esc(r.heard)}</div><div class="vic">${esc(r.heardPinyin||'')}</div>`:''}${r.good?`<div>👍 ${esc(r.good)}</div>`:''}${(r.errors||[]).map(f=>`<div class="er">${tag(f.type||'Lỗi')}<b class="zhc">${esc(f.word)}</b><div class="vic">Bạn đọc: ${esc(f.said)}</div><div class="zhc">✔ ${esc(f.better)}</div><div class="vic">${esc(f.why)}</div></div>`).join('')}${r.tip?`<div>💡 ${esc(r.tip)}</div>`:''}<audio controls src="${url}" style="width:100%;margin-top:8px"></audio></div>`}
+function pronHtml(r,url){const sc=Math.round(+r.score||0);return `<div class="gm"><b>🎧 AI chấm phát âm: ${sc}/100 ${sc>=80?'🌟':sc>=60?'👍':'🔁'}</b>${brkHtml(r.breakdown)}${r.heard?`<div class="vic">AI nghe được:</div><div class="zhc">${esc(r.heard)}</div><div class="vic">${esc(r.heardPinyin||'')}</div>`:''}${r.good?`<div>👍 ${esc(r.good)}</div>`:''}${(r.errors||[]).map(f=>`<div class="er">${tag(f.type||'Lỗi')}<b class="zhc">${esc(f.word)}</b><div class="vic">Bạn đọc: ${esc(f.said)}</div><div class="zhc">✔ ${esc(f.better)}</div><div class="vic">${esc(f.why)}</div></div>`).join('')}${r.tip?`<div>💡 ${esc(r.tip)}</div>`:''}${r.ms?`<div class="vic">⏱ Gemini ${(r.ms/1000).toFixed(1)}s · tổng ${((r.tot||r.ms)/1000).toFixed(1)}s · ${esc(r.model||'')}</div>`:''}<audio controls src="${url}" style="width:100%;margin-top:8px"></audio></div>`}
 async function pronL(){
  if(prec){prec.r.stop();return}   // đang ghi -> dừng, onstop sẽ chấm
  if(!navigator.mediaDevices||!window.MediaRecorder)return toast('Trình duyệt không hỗ trợ ghi âm.');
@@ -263,12 +263,13 @@ async function pronL(){
  r.onstop=async()=>{s.getTracks().forEach(t=>t.stop());clearTimeout(p.tm);if(prec===p)prec=null;if(p.cancel)return;pronBtn('busy');
   try{const raw=new Blob(ch,{type:r.mimeType||'audio/webm'}),lvl=(pl&&pl.it&&pl.it.lv)||xlv;
    if(raw.size<1500)throw new Error('Ghi âm quá ngắn, hãy đọc lại nhé.');
-   let j,play=raw;
+   let j,play=raw;const t1=Date.now();
    // Gửi thẳng bản ghi nén (webm/mp4 ~4KB/giây) cho nhanh; chỉ khi bị từ chối định dạng mới đổi sang WAV 16kHz
    try{j=await ai('pronfb',{level:lvl,text:m.zh,audMime:(raw.type||'audio/webm').split(';')[0],audData:b64(await raw.arrayBuffer())},'/api/audio')}
    catch(e){if(!/400|mime|không hợp lệ|định dạng|unsupported/i.test(e.message||''))throw e;
     const wav=await toWav16k(raw);if(wav.byteLength<16000)throw new Error('Ghi âm quá ngắn, hãy đọc lại nhé.');
     play=new Blob([wav],{type:'audio/wav'});j=await ai('pronfb',{level:lvl,text:m.zh,audMime:'audio/wav',audData:b64(wav)},'/api/audio')}
+   j.tot=Date.now()-t1;
    if(!pl||sid!==my||pl.i!==idx)return;
    if(pUrl)URL.revokeObjectURL(pUrl);pUrl=URL.createObjectURL(play);
    (pl.pr=pl.pr||{})[idx]=j;
