@@ -104,7 +104,7 @@ const st={lv:0,mode:'learn',swap:LS.get('swap',false),lang:LS.get('lang','vi'),m
 let pl=null,rec=null,busy=false,tt,sid=0,chatCtl=null;
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(tt);tt=setTimeout(()=>t.style.display='none',3200)}
 const tmo=ms=>{if(AbortSignal.timeout)return AbortSignal.timeout(ms);const c=new AbortController();setTimeout(()=>c.abort(),ms);return c.signal};
-async function ai(task,b,url='/api/ai'){let r;try{r=await fetch(url,{method:'POST',signal:tmo(75000),headers:{'Content-Type':'application/json'},body:JSON.stringify({task,...b})})}catch{throw new Error('Máy chủ không phản hồi. Nếu web vừa “ngủ”, chờ 1 phút rồi thử lại.')}const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Lỗi máy chủ');return j}
+async function ai(task,b,url='/api/ai',sig){let r;try{r=await fetch(url,{method:'POST',signal:sig||tmo(75000),headers:{'Content-Type':'application/json'},body:JSON.stringify({task,...b})})}catch{throw new Error('Máy chủ không phản hồi. Nếu web vừa “ngủ”, chờ 1 phút rồi thử lại.')}const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Lỗi máy chủ');return j}
 /* ---------- home ---------- */
 function home(){
  $('#lvchips').innerHTML=[0,1,2,3,4,5,6,7,8,9].map(n=>`<button class="chip ${st.lv===n?'on':''}" onclick="st.lv=${n};home()">${n?'HSK'+n:'Tất cả'}</button>`).join('');
@@ -241,9 +241,9 @@ function listen(onres,onend){const R=window.SpeechRecognition||window.webkitSpee
 function micToggle(cb,live,sel='#mic'){if(rec){rec.stop();return}try{speechSynthesis.cancel()}catch{}
  const m=$(sel);m?.classList.add('rec');rec=listen(live,t=>{m?.classList.remove('rec');if(t)cb(t)});if(!rec)m?.classList.remove('rec')}
 /* ---------- AI chấm phát âm: ghi âm thật -> WAV 16kHz -> /api/audio (Gemini nghe trực tiếp) ---------- */
-let prec=null,pUrl='';
-function pronBtn(m){const b=$('#pmic');if(!b)return;b.disabled=m==='busy';b.classList.toggle('rc',m==='rec');b.textContent=m==='rec'?'⏹ Dừng & chấm':m==='busy'?'⏳ Đang chấm…':'🎧 AI chấm'}
-function pronAbort(){const p=prec;prec=null;if(p){p.cancel=true;clearTimeout(p.tm);try{p.r.state!=='inactive'&&p.r.stop()}catch{}try{p.s.getTracks().forEach(t=>t.stop())}catch{}}pronBtn('idle')}
+let prec=null,pUrl='',pstart=false,pgrade=null,pjob=0;
+function pronBtn(m){const b=$('#pmic');if(!b)return;b.disabled=false;b.classList.toggle('rc',m==='rec');b.textContent=m==='rec'?'⏹ Dừng & chấm':m==='busy'?'⏳ Đang chấm… (bấm để ghi lại)':'🎧 AI chấm'}
+function pronAbort(){if(pgrade){pgrade.__sup=true;try{pgrade.abort()}catch{}pgrade=null}const p=prec;prec=null;if(p){p.cancel=true;clearTimeout(p.tm);try{p.r.state!=='inactive'&&p.r.stop()}catch{}try{p.s.getTracks().forEach(t=>t.stop())}catch{}}pronBtn('idle')}
 async function toWav16k(blob){const ctx=new(window.AudioContext||window.webkitAudioContext)();let dec;try{dec=await ctx.decodeAudioData(await blob.arrayBuffer())}finally{ctx.close()}
  const rate=16000,off=new OfflineAudioContext(1,Math.max(1,Math.ceil(dec.duration*rate)),rate),src=off.createBufferSource();src.buffer=dec;src.connect(off.destination);src.start();
  const pcm=(await off.startRendering()).getChannelData(0),o=new DataView(new ArrayBuffer(44+pcm.length*2)),w=(a,t)=>[...t].forEach((c,i)=>o.setUint8(a+i,c.charCodeAt(0)));
@@ -253,29 +253,30 @@ function b64(ab){let s='';const u=new Uint8Array(ab);for(let i=0;i<u.length;i+=0
 function pronHtml(r,url){const sc=Math.round(+r.score||0);return `<div class="gm"><b>🎧 AI chấm phát âm: ${sc}/100 ${sc>=80?'🌟':sc>=60?'👍':'🔁'}</b>${brkHtml(r.breakdown)}${r.heard?`<div class="vic">AI nghe được:</div><div class="zhc">${esc(r.heard)}</div><div class="vic">${esc(r.heardPinyin||'')}</div>`:''}${r.good?`<div>👍 ${esc(r.good)}</div>`:''}${(r.errors||[]).map(f=>`<div class="er">${tag(f.type||'Lỗi')}<b class="zhc">${esc(f.word)}</b><div class="vic">Bạn đọc: ${esc(f.said)}</div><div class="zhc">✔ ${esc(f.better)}</div><div class="vic">${esc(f.why)}</div></div>`).join('')}${r.tip?`<div>💡 ${esc(r.tip)}</div>`:''}${r.ms?`<div class="vic">⏱ Gemini ${(r.ms/1000).toFixed(1)}s · tổng ${((r.tot||r.ms)/1000).toFixed(1)}s · ${esc(r.model||'')}</div>`:''}<audio controls src="${url}" style="width:100%;margin-top:8px"></audio></div>`}
 async function pronL(){
  if(prec){prec.r.stop();return}   // đang ghi -> dừng, onstop sẽ chấm
+ if(pstart)return;   // đang xin micro, tránh mở 2 luồng ghi
+ if(pgrade){pgrade.__sup=true;try{pgrade.abort()}catch{}pgrade=null}   // bấm ghi lại khi còn đang chấm -> bỏ lượt chấm cũ
  if(!navigator.mediaDevices||!window.MediaRecorder)return toast('Trình duyệt không hỗ trợ ghi âm.');
  if(rec)rec.stop();try{speechSynthesis.cancel()}catch{}
  const my=sid,idx=pl.i,m=cur();let s;
- try{s=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}})}catch{return toast('Hãy cho phép dùng micro cho trang này')}
+ pstart=true;try{s=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}})}catch{pstart=false;return toast('Hãy cho phép dùng micro cho trang này')}pstart=false;
  if(!pl||sid!==my||pl.i!==idx){s.getTracks().forEach(t=>t.stop());return}
- const ch=[];let r;try{r=new MediaRecorder(s,{audioBitsPerSecond:32000})}catch{r=new MediaRecorder(s)}const p={r,s,cancel:false};prec=p;
+ const ch=[];let r;try{r=new MediaRecorder(s,{audioBitsPerSecond:32000})}catch{r=new MediaRecorder(s)}const p={r,s,cancel:false};prec=p;const job=++pjob;
  r.ondataavailable=e=>e.data.size&&ch.push(e.data);
- r.onstop=async()=>{s.getTracks().forEach(t=>t.stop());clearTimeout(p.tm);if(prec===p)prec=null;if(p.cancel)return;pronBtn('busy');
+ r.onstop=async()=>{s.getTracks().forEach(t=>t.stop());clearTimeout(p.tm);if(prec===p)prec=null;if(p.cancel)return;pronBtn('busy');const gc=new AbortController();pgrade=gc;const gt=setTimeout(()=>{gc.__to=true;try{gc.abort()}catch{}},45000);
   try{const raw=new Blob(ch,{type:r.mimeType||'audio/webm'}),lvl=(pl&&pl.it&&pl.it.lv)||xlv;
    if(raw.size<1500)throw new Error('Ghi âm quá ngắn, hãy đọc lại nhé.');
    let j,play=raw;const t1=Date.now();
    // Gửi thẳng bản ghi nén (webm/mp4 ~4KB/giây) cho nhanh; chỉ khi bị từ chối định dạng mới đổi sang WAV 16kHz
-   try{j=await ai('pronfb',{level:lvl,text:m.zh,audMime:(raw.type||'audio/webm').split(';')[0],audData:b64(await raw.arrayBuffer())},'/api/audio')}
+   try{j=await ai('pronfb',{level:lvl,text:m.zh,audMime:(raw.type||'audio/webm').split(';')[0],audData:b64(await raw.arrayBuffer())},'/api/audio',gc.signal)}
    catch(e){if(!/400|mime|không hợp lệ|định dạng|unsupported/i.test(e.message||''))throw e;
     const wav=await toWav16k(raw);if(wav.byteLength<16000)throw new Error('Ghi âm quá ngắn, hãy đọc lại nhé.');
-    play=new Blob([wav],{type:'audio/wav'});j=await ai('pronfb',{level:lvl,text:m.zh,audMime:'audio/wav',audData:b64(wav)},'/api/audio')}
+    play=new Blob([wav],{type:'audio/wav'});j=await ai('pronfb',{level:lvl,text:m.zh,audMime:'audio/wav',audData:b64(wav)},'/api/audio',gc.signal)}
    j.tot=Date.now()-t1;
    if(!pl||sid!==my||pl.i!==idx)return;
    if(pUrl)URL.revokeObjectURL(pUrl);pUrl=URL.createObjectURL(play);
    (pl.pr=pl.pr||{})[idx]=j;
    const el=$('#pres');if(el)el.innerHTML=pronHtml(j,pUrl);$('#msgs').scrollTop=1e6}
-  catch(e){toast(e.message||'Không chấm được, thử lại nhé')}
-  pronBtn('idle')};
+  catch(e){if(!gc.__sup&&job===pjob)toast(gc.__to?'Chấm quá lâu (>45s), hãy bấm ghi lại nhé':(e.message||'Không chấm được, thử lại nhé'))}finally{clearTimeout(gt);if(pgrade===gc)pgrade=null;if(job===pjob&&!prec)pronBtn('idle')}};
  r.start();p.tm=setTimeout(()=>{try{r.state==='recording'&&r.stop()}catch{}},20000);   // tối đa 20 giây (đọc một câu), ghi dài chỉ làm chậm
  pronBtn('rec')}
 /* ---------- scoring ---------- */
